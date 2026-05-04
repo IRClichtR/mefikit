@@ -2,9 +2,12 @@ use crate::mesh::{UMesh, UMeshView};
 use std::path::Path;
 
 mod serde_io;
-mod vtk_io;
+pub mod vtk_io;
+mod hdf_vtk;
 // mod med; // for later
 // mod cngs; // for later
+
+pub use vtk_io::{to_element_type, to_vtk_cell};
 
 pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
     match path
@@ -17,6 +20,7 @@ pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
         "json" => serde_io::read_json(path),
         "yaml" | "yml" => serde_io::read_yaml(path),
         "vtk" | "vtu" => vtk_io::read(path),
+        "vtkhdf" | "h5" | "hdf5" => hdf_vtk::read(path),
         _ => Err(format!("Unsupported file extension: {path:?}").into()),
     }
 }

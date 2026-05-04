@@ -6,7 +6,7 @@ use ndarray::prelude::*;
 use std::path::Path;
 use vtkio::model::*;
 
-fn to_vtk_cell(et: ElementType) -> CellType {
+pub fn to_vtk_cell(et: ElementType) -> CellType {
     use ElementType::*;
     match et {
         VERTEX => CellType::Vertex,
@@ -90,7 +90,7 @@ pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Err
     Ok(vtk.export(path)?)
 }
 
-fn to_element_type(cell_type: CellType) -> ElementType {
+pub fn to_element_type(cell_type: CellType) -> ElementType {
     use CellType::*;
     match cell_type {
         Vertex => ElementType::VERTEX,
