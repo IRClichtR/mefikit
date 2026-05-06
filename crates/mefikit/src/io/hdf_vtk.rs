@@ -56,7 +56,7 @@ fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, Box<dyn std::erro
     let attr = group.attr("Type")?;
     let dtype = attr.dtype()?;
     let desc = dtype.to_descriptor()?;
-    dbg!(&desc);  // let's see what we get
+    
     match desc {
         TypeDescriptor::VarLenUnicode  => {
             let s: VarLenUnicode = attr.read_scalar()?;
@@ -82,8 +82,6 @@ pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let vtk = file
         .group("VTKHDF").map_err(|_| "Not a VTKHDF file")?;
-    let type_attr = read_type_attr(&vtk);
-    println!("type attr = {type_attr:?}");
 
     match read_type_attr(&vtk)?.as_str() {
         "UnstructuredGrid" => return handle_unstructured(&vtk), 
