@@ -1,26 +1,21 @@
-use hdf5_metno::{File, 
-    types::{
-        TypeDescriptor, 
-        FixedAscii, 
-        FixedUnicode, 
-        VarLenAscii, 
-        VarLenUnicode
-    }
-};
-use ndarray::{Array2, Array1, arr1, s};
-use std::path::Path;
 use crate::mesh::{ElementLike, ElementType, UMesh, UMeshView};
+use hdf5_metno::{
+    File,
+    types::{FixedAscii, FixedUnicode, TypeDescriptor, VarLenAscii, VarLenUnicode},
+};
+use ndarray::{Array1, Array2, arr1, s};
+use std::path::Path;
 
 impl TryFrom<usize> for ElementType {
     type Error = Box<dyn std::error::Error>;
-    
+
     fn try_from(code: usize) -> Result<Self, Self::Error> {
         match code {
-            1  => Ok(ElementType::VERTEX),
-            3  => Ok(ElementType::SEG2),
-            5  => Ok(ElementType::TRI3),
-            7  => Ok(ElementType::PGON),
-            9  => Ok(ElementType::QUAD4),
+            1 => Ok(ElementType::VERTEX),
+            3 => Ok(ElementType::SEG2),
+            5 => Ok(ElementType::TRI3),
+            7 => Ok(ElementType::PGON),
+            9 => Ok(ElementType::QUAD4),
             10 => Ok(ElementType::TET4),
             12 => Ok(ElementType::HEX8),
             42 => Ok(ElementType::PHED),
@@ -56,16 +51,16 @@ fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, Box<dyn std::erro
     let attr = group.attr("Type")?;
     let dtype = attr.dtype()?;
     let desc = dtype.to_descriptor()?;
-    
+
     match desc {
-        TypeDescriptor::VarLenUnicode  => {
+        TypeDescriptor::VarLenUnicode => {
             let s: VarLenUnicode = attr.read_scalar()?;
             Ok(s.to_string())
-        },
+        }
         TypeDescriptor::VarLenAscii => {
             let s: VarLenAscii = attr.read_scalar()?;
             Ok(s.to_string())
-        },
+        }
         TypeDescriptor::FixedAscii(_) => {
             let s: FixedAscii<64> = attr.read_scalar()?;
             Ok(s.as_str().trim_end_matches('\0').to_string())
@@ -80,11 +75,10 @@ fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, Box<dyn std::erro
 
 pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
-    let vtk = file
-        .group("VTKHDF").map_err(|_| "Not a VTKHDF file")?;
+    let vtk = file.group("VTKHDF").map_err(|_| "Not a VTKHDF file")?;
 
     match read_type_attr(&vtk)?.as_str() {
-        "UnstructuredGrid" => return handle_unstructured(&vtk), 
+        "UnstructuredGrid" => return handle_unstructured(&vtk),
         "PartitionedDataSetCollection" | "MultiBlockDataSet" => {
             for name in vtk.member_names()? {
                 let block = vtk.group(name.as_str())?;
@@ -95,8 +89,8 @@ pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
                     _ => continue,
                 }
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
     Err(format!("No VTKHDF group found in {}", path.display()).into())
 }
@@ -105,14 +99,14 @@ impl ElementType {
     pub fn into_vtk_u8(self) -> u8 {
         match self {
             ElementType::VERTEX => 1,
-            ElementType::SEG2   => 3,
-            ElementType::TRI3   => 5,
-            ElementType::PGON   => 7,
-            ElementType::QUAD4  => 9,
-            ElementType::TET4   => 10,
-            ElementType::HEX8   => 12,
-            ElementType::PHED   => 42,
-            other => panic!("Unsupported ElementType {other:?}")
+            ElementType::SEG2 => 3,
+            ElementType::TRI3 => 5,
+            ElementType::PGON => 7,
+            ElementType::QUAD4 => 9,
+            ElementType::TET4 => 10,
+            ElementType::HEX8 => 12,
+            ElementType::PHED => 42,
+            other => panic!("Unsupported ElementType {other:?}"),
         }
     }
 }
@@ -125,16 +119,16 @@ pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Err
 
     // add type UnstructuredGrid attr
     vtk.new_attr::<FixedAscii<16>>()
-            .shape(())
-            .create("Type")?
-            .write_scalar(&FixedAscii::<16>::from_ascii("UnstructuredGrid").unwrap())?;
-    
+        .shape(())
+        .create("Type")?
+        .write_scalar(&FixedAscii::<16>::from_ascii("UnstructuredGrid").unwrap())?;
+
     // add version
     vtk.new_attr::<i64>()
         .shape([2])
         .create("Version")?
         .write(&arr1(&[2i64, 0]))?;
-    
+
     // collect from mesh view
     let coords: Array2<f64> = mesh.coords().to_owned();
 
@@ -149,28 +143,28 @@ pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Err
         connectivity.extend_from_slice(conn);
         offsets.push(connectivity.len());
     }
-    
+
     // write datasets
-        // coords  
-    vtk.new_dataset::<f64>() 
+    // coords
+    vtk.new_dataset::<f64>()
         .shape(coords.shape())
         .create("Points")?
         .write(&coords)?;
-        // types
+    // types
     vtk.new_dataset::<u8>()
         .shape([types.len()])
         .create("Types")?
         .write(&Array1::from(types))?;
-        // offsets
-    vtk.new_dataset::<usize>() 
+    // offsets
+    vtk.new_dataset::<usize>()
         .shape([offsets.len()])
         .create("Offsets")?
         .write(&Array1::from(offsets))?;
-        // connectivity
-    vtk.new_dataset::<usize>() 
+    // connectivity
+    vtk.new_dataset::<usize>()
         .shape([connectivity.len()])
         .create("Connectivity")?
         .write(&Array1::from(connectivity))?;
-    
+
     Ok(())
 }

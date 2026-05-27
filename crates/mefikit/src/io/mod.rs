@@ -1,9 +1,9 @@
 use crate::mesh::{UMesh, UMeshView};
 use std::path::Path;
 
+mod hdfvtk_io;
 mod serde_io;
 pub mod vtk_io;
-mod hdfvtk_io;
 // mod med; // for later
 
 pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
