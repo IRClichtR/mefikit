@@ -238,7 +238,15 @@ mod tests {
         let conn = &[0, 1, 2, 3];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::QUAD4);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::QUAD4,
+        );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D1));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 4 edges
         let (et, connectivity) = &subentities[0];
@@ -253,7 +261,15 @@ mod tests {
         let conn = &[0, 1, 2, 3];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::QUAD4);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::QUAD4,
+        );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D2));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 4 vertices
         let (et, connectivity) = &subentities[0];
@@ -267,7 +283,15 @@ mod tests {
         let conn = &[0, 1, 2];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::TRI3);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::TRI3,
+        );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D1));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 3 edges
         let (et, connectivity) = &subentities[0];
@@ -281,7 +305,15 @@ mod tests {
         let conn = &[0, 1, 2];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::TRI3);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::TRI3,
+        );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D2));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 3 vertices
         let (et, connectivity) = &subentities[0];
@@ -295,7 +327,15 @@ mod tests {
         let conn = &[0, 1];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::SEG2);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::SEG2,
+        );
         let subentities = elem.subentities(None); // defaults to D1
         assert_eq!(subentities.len(), 1); // One Connectivity containing both vertices
         let (et, connectivity) = &subentities[0];
@@ -309,7 +349,15 @@ mod tests {
         let conn = &[0, 1, 2, 3];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::QUAD4);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::QUAD4,
+        );
         let simplexes = elem.to_simplexes();
         assert_eq!(simplexes.len(), 2); // QUAD4 -> 2 TRI3
         for (et, _) in &simplexes {
@@ -323,7 +371,15 @@ mod tests {
         let conn = &[0, 1, 2];
         let groups = BTreeMap::new();
         let family = 0;
-        let elem = Element::new(0, coords.view(), None, &family, &groups, conn, ElementType::TRI3);
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &family,
+            &groups,
+            conn,
+            ElementType::TRI3,
+        );
         let simplexes = elem.to_simplexes();
         assert_eq!(simplexes.len(), 1); // TRI3 -> 1 TRI3
         assert_eq!(simplexes[0].0, ElementType::TRI3);

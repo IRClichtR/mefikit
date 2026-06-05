@@ -2,11 +2,11 @@
 //!
 //! These tests focus on end-to-end functionality and interactions between modules.
 
+use approx::assert_abs_diff_eq;
+use mefikit::mesh::{ElementId, ElementIds, FieldBase};
 use mefikit::prelude::*;
-use mefikit::mesh::{ElementIds, ElementId, FieldBase};
 use ndarray as nd;
 use std::collections::BTreeMap;
-use approx::assert_abs_diff_eq;
 
 // Helper functions (similar to mesh_examples but available in integration tests)
 fn make_mesh_2d_quad() -> UMesh {
@@ -73,11 +73,7 @@ mod mesh_creation {
     fn create_1d_mesh_with_segments() {
         let coords = nd::Array2::from_shape_vec((2, 1), vec![0.0, 1.0]).unwrap();
         let mut mesh = UMesh::new(coords.into());
-        mesh.add_regular_block(
-            ElementType::SEG2,
-            nd::arr2(&[[0, 1]]).to_shared(),
-            None,
-        );
+        mesh.add_regular_block(ElementType::SEG2, nd::arr2(&[[0, 1]]).to_shared(), None);
         assert_eq!(mesh.num_elements(), 1);
         assert_eq!(mesh.num_elements_of_dim(Dimension::D1), 1);
         assert_eq!(mesh.topological_dimension(), Some(Dimension::D1));
@@ -529,10 +525,16 @@ mod extract_mesh {
     #[test]
     fn extract_single_element() {
         let mesh = make_mesh_2d_multi();
-        let ids: ElementIds = vec![ElementId::new(ElementType::QUAD4, 0)].into_iter().collect();
+        let ids: ElementIds = vec![ElementId::new(ElementType::QUAD4, 0)]
+            .into_iter()
+            .collect();
         let extracted = mesh.extract(&ids, false);
         assert_eq!(extracted.num_elements(), 1);
-        assert!(extracted.element_types().any(|&et| et == ElementType::QUAD4));
+        assert!(
+            extracted
+                .element_types()
+                .any(|&et| et == ElementType::QUAD4)
+        );
     }
 
     #[test]
@@ -541,7 +543,9 @@ mod extract_mesh {
         let ids: ElementIds = vec![
             ElementId::new(ElementType::SEG2, 0),
             ElementId::new(ElementType::SEG2, 1),
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
         let extracted = mesh.extract(&ids, false);
         assert_eq!(extracted.num_elements(), 2);
         assert_eq!(extracted.num_elements_of_dim(Dimension::D1), 2);
@@ -553,7 +557,9 @@ mod extract_mesh {
         let ids: ElementIds = vec![
             ElementId::new(ElementType::SEG2, 0),
             ElementId::new(ElementType::QUAD4, 0),
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
         let extracted = mesh.extract(&ids, false);
         assert_eq!(extracted.num_elements(), 2);
         assert_eq!(extracted.element_types().count(), 2);
@@ -562,7 +568,9 @@ mod extract_mesh {
     #[test]
     fn extract_nonexistent_element() {
         let mesh = make_mesh_2d_quad();
-        let ids: ElementIds = vec![ElementId::new(ElementType::TRI3, 0)].into_iter().collect();
+        let ids: ElementIds = vec![ElementId::new(ElementType::TRI3, 0)]
+            .into_iter()
+            .collect();
         let extracted = mesh.extract(&ids, false);
         assert_eq!(extracted.num_elements(), 0);
     }
@@ -576,7 +584,14 @@ mod selection {
     fn select_all_elements() {
         let mesh = make_mesh_2d_multi();
         // Create an "all" selection using a wildcard approach - select by existing types
-        let ids = mesh.select_ids(sel::types(vec![ElementType::SEG2, ElementType::QUAD4, ElementType::PGON, ElementType::TRI3, ElementType::TET4, ElementType::HEX8]));
+        let ids = mesh.select_ids(sel::types(vec![
+            ElementType::SEG2,
+            ElementType::QUAD4,
+            ElementType::PGON,
+            ElementType::TRI3,
+            ElementType::TET4,
+            ElementType::HEX8,
+        ]));
         assert_eq!(ids.len(), 4);
     }
 
@@ -631,11 +646,8 @@ mod snap_operations {
 
     #[test]
     fn snap_coordinates() {
-        let subject_coords = nd::Array2::from_shape_vec(
-            (3, 2),
-            vec![0.0, 0.0, 1.01, 0.0, 0.0, 1.01],
-        )
-        .unwrap();
+        let subject_coords =
+            nd::Array2::from_shape_vec((3, 2), vec![0.0, 0.0, 1.01, 0.0, 0.0, 1.01]).unwrap();
         let mut subject = UMesh::new(subject_coords.clone().into());
         subject.add_regular_block(
             ElementType::SEG2,
@@ -643,17 +655,10 @@ mod snap_operations {
             None,
         );
 
-        let reference_coords = nd::Array2::from_shape_vec(
-            (2, 2),
-            vec![0.0, 0.0, 1.0, 0.0],
-        )
-        .unwrap();
+        let reference_coords =
+            nd::Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 1.0, 0.0]).unwrap();
         let mut reference = UMesh::new(reference_coords.clone().into());
-        reference.add_regular_block(
-            ElementType::SEG2,
-            nd::arr2(&[[0, 1]]).to_shared(),
-            None,
-        );
+        reference.add_regular_block(ElementType::SEG2, nd::arr2(&[[0, 1]]).to_shared(), None);
 
         snap(&mut subject, reference.view(), 0.02);
         assert_abs_diff_eq!(subject.coords()[[1, 0]], 1.0, epsilon = 1e-6);

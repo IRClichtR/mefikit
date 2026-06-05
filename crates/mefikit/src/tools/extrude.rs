@@ -400,11 +400,7 @@ mod tests {
     fn test_extrude_1d_to_2d() {
         let coords = nd::ArcArray2::from_shape_vec((2, 1), vec![0.0, 1.0]).unwrap();
         let mut mesh = UMesh::new(coords);
-        mesh.add_regular_block(
-            ElementType::SEG2,
-            nd::arr2(&[[0, 1]]).to_shared(),
-            None,
-        );
+        mesh.add_regular_block(ElementType::SEG2, nd::arr2(&[[0, 1]]).to_shared(), None);
         let extruded = mesh.extrude(&[0.0, 1.0]);
         assert_eq!(extruded.space_dimension(), 2);
         assert!(extruded.num_elements() > 0);
@@ -412,11 +408,9 @@ mod tests {
 
     #[test]
     fn test_extrude_2d_to_3d() {
-        let coords = nd::ArcArray2::from_shape_vec(
-            (4, 2),
-            vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
-        )
-        .unwrap();
+        let coords =
+            nd::ArcArray2::from_shape_vec((4, 2), vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+                .unwrap();
         let mut mesh = UMesh::new(coords);
         mesh.add_regular_block(
             ElementType::QUAD4,
@@ -432,11 +426,7 @@ mod tests {
     fn test_extrude_empty_along() {
         let coords = nd::ArcArray2::from_shape_vec((2, 1), vec![0.0, 1.0]).unwrap();
         let mut mesh = UMesh::new(coords);
-        mesh.add_regular_block(
-            ElementType::SEG2,
-            nd::arr2(&[[0, 1]]).to_shared(),
-            None,
-        );
+        mesh.add_regular_block(ElementType::SEG2, nd::arr2(&[[0, 1]]).to_shared(), None);
         let extruded = mesh.extrude(&[]);
         assert_eq!(extruded.num_elements(), mesh.num_elements());
     }
