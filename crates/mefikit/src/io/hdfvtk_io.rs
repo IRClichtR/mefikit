@@ -1,4 +1,7 @@
-use crate::mesh::{ElementLike, ElementType, UMesh, UMeshView};
+use crate::{
+    io::{IOError, HdfVtkError}, 
+    mesh::{ElementLike, ElementType, UMesh, UMeshView}
+};
 use hdf5_metno::{
     File,
     types::{FixedAscii, FixedUnicode, TypeDescriptor, VarLenAscii, VarLenUnicode},
@@ -7,7 +10,7 @@ use ndarray::{Array1, Array2, arr1, s};
 use std::path::Path;
 
 impl TryFrom<usize> for ElementType {
-    type Error = Box<dyn std::error::Error>;
+    type Error = IOError;
 
     fn try_from(code: usize) -> Result<Self, Self::Error> {
         match code {
@@ -19,12 +22,14 @@ impl TryFrom<usize> for ElementType {
             10 => Ok(ElementType::TET4),
             12 => Ok(ElementType::HEX8),
             42 => Ok(ElementType::PHED),
-            other => Err(format!("Unsupported VTK cell type: {other}").into()),
+            other => Err(IOError::HdfVtk(HdfVtkError::UnsupportedElementType(
+                other.to_string(),
+            ))),
         }
     }
 }
 
-fn handle_unstructured(block: &hdf5_metno::Group) -> Result<UMesh, Box<dyn std::error::Error>> {
+fn handle_unstructured(block: &hdf5_metno::Group) -> Result<UMesh, IOError> {
     // read data from file
     let points: Array2<f64> = block.dataset("Points")?.read()?;
     let offsets: Array1<usize> = block.dataset("Offsets")?.read()?;
@@ -47,7 +52,7 @@ fn handle_unstructured(block: &hdf5_metno::Group) -> Result<UMesh, Box<dyn std::
     Ok(mesh)
 }
 
-fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, Box<dyn std::error::Error>> {
+fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, IOError> {
     let attr = group.attr("Type")?;
     let dtype = attr.dtype()?;
     let desc = dtype.to_descriptor()?;
@@ -69,13 +74,15 @@ fn read_type_attr(group: &hdf5_metno::Group) -> Result<String, Box<dyn std::erro
             let s: FixedUnicode<64> = attr.read_scalar()?;
             Ok(s.as_str().trim_end_matches('\0').to_string())
         }
-        other => Err(format!("Unexpected string type: {other:?}").into()),
+        other => Err(IOError::HdfVtk(HdfVtkError::UnexpectedStringType(format!(
+            "{other:?}"
+        )))),
     }
 }
 
-pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
+pub fn read(path: &Path) -> Result<UMesh, IOError> {
     let file = File::open(path)?;
-    let vtk = file.group("VTKHDF").map_err(|_| "Not a VTKHDF file")?;
+    let vtk = file.group("VTKHDF").map_err(|_| IOError::HdfVtk(HdfVtkError::NotVTKHDF))?;
 
     match read_type_attr(&vtk)?.as_str() {
         "UnstructuredGrid" => return handle_unstructured(&vtk),
@@ -92,26 +99,29 @@ pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
         }
         _ => {}
     }
-    Err(format!("No VTKHDF group found in {}", path.display()).into())
+    Err(IOError::HdfVtk(HdfVtkError::VTKHDFGroupNotFound(path.display().to_string())))
+    // Err(format!("No VTKHDF group found in {}", path.display()).into())
 }
 
 impl ElementType {
-    pub fn into_vtk_u8(self) -> u8 {
+    pub fn into_vtk_u8(self) -> Result<u8, IOError> {
         match self {
-            ElementType::VERTEX => 1,
-            ElementType::SEG2 => 3,
-            ElementType::TRI3 => 5,
-            ElementType::PGON => 7,
-            ElementType::QUAD4 => 9,
-            ElementType::TET4 => 10,
-            ElementType::HEX8 => 12,
-            ElementType::PHED => 42,
-            other => panic!("Unsupported ElementType {other:?}"),
+            ElementType::VERTEX => Ok(1),
+            ElementType::SEG2 => Ok(3),
+            ElementType::TRI3 => Ok(5),
+            ElementType::PGON => Ok(7),
+            ElementType::QUAD4 => Ok(9),
+            ElementType::TET4 => Ok(10),
+            ElementType::HEX8 => Ok(12),
+            ElementType::PHED => Ok(42),
+            other => Err(IOError::HdfVtk(HdfVtkError::UnsupportedElementType(format!(
+                "{other:?}"
+            )))),
         }
     }
 }
 
-pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write(path: &Path, mesh: UMeshView) -> Result<(), IOError> {
     // create file
     let file = File::create(path)?;
     // create VTKHDF group
@@ -139,7 +149,7 @@ pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Err
 
     for el in mesh.elements() {
         let conn = el.connectivity();
-        types.push(ElementType::into_vtk_u8(el.element_type()));
+        types.push(ElementType::into_vtk_u8(el.element_type())?);
         connectivity.extend_from_slice(conn);
         offsets.push(connectivity.len());
     }

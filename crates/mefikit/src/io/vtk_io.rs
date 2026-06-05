@@ -5,6 +5,7 @@ use crate::mesh::{UMesh, UMeshView};
 use ndarray::prelude::*;
 use std::path::Path;
 use vtkio::model::*;
+use crate::io::IOError;
 
 fn to_vtk_cell(et: ElementType) -> CellType {
     use ElementType::*;
@@ -21,7 +22,7 @@ fn to_vtk_cell(et: ElementType) -> CellType {
     }
 }
 
-pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write(path: &Path, mesh: UMeshView) -> Result<(), IOError> {
     let coords: Vec<f64> = match mesh.coords().shape()[1] {
         1 => mesh
             .coords()
@@ -115,7 +116,7 @@ fn extract_connectivity(connectivity: &[u64], offsets: &[u64], i: usize) -> Vec<
     cell_connectivity
 }
 
-pub fn read(path: &Path) -> Result<UMesh, Box<dyn std::error::Error>> {
+pub fn read(path: &Path) -> Result<UMesh, IOError> {
     let vtk = Vtk::import(path)?;
     let pieces = if let DataSet::UnstructuredGrid { pieces, .. } = vtk.data {
         pieces
