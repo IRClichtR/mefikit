@@ -250,7 +250,7 @@ where
         let offsets = std::mem::replace(&mut self.offsets, nd::arr1(&[]));
         let (mut vec_offsets, _) = offsets.into_raw_vec_and_offset();
         vec_data.extend_from_slice(elem);
-        vec_offsets.push(self.data.len());
+        vec_offsets.push(vec_data.len());
         self.data = vec_data.into();
         self.offsets = vec_offsets.into();
     }
