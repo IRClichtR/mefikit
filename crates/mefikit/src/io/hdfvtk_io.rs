@@ -7,17 +7,17 @@ use ndarray::{Array1, Array2, arr1, s};
 use std::path::Path;
 
 fn el_to_usize(code: usize) -> Result<ElementType, Box<dyn std::error::Error>> {
-     match code {
-         1 => Ok(ElementType::VERTEX),
-         3 => Ok(ElementType::SEG2),
-         5 => Ok(ElementType::TRI3),
-         7 => Ok(ElementType::PGON),
-         9 => Ok(ElementType::QUAD4),
-         10 => Ok(ElementType::TET4),
-         12 => Ok(ElementType::HEX8),
-         42 => Ok(ElementType::PHED),
-         other => Err(format!("Unsupported HdfVtkElementType code {other}").into()),
-     }
+    match code {
+        1 => Ok(ElementType::VERTEX),
+        3 => Ok(ElementType::SEG2),
+        5 => Ok(ElementType::TRI3),
+        7 => Ok(ElementType::PGON),
+        9 => Ok(ElementType::QUAD4),
+        10 => Ok(ElementType::TET4),
+        12 => Ok(ElementType::HEX8),
+        42 => Ok(ElementType::PHED),
+        other => Err(format!("Unsupported HdfVtkElementType code {other}").into()),
+    }
 }
 
 fn usize_to_el(el_type: ElementType) -> Result<usize, Box<dyn std::error::Error>> {
