@@ -838,6 +838,7 @@ dependencies = [
  "itertools 0.15.0",
  "nalgebra",
  "ndarray",
+ "num-traits",
  "once_cell",
  "petgraph",
  "proptest",
