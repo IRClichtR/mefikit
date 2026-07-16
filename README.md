@@ -174,6 +174,7 @@ same name was used for the python library for the sake of simplicity.
 To build the bindings and the python package please run:
 
 ```bash
+uv tool install maturin
 uv run maturin develop --uv
 ```
 
