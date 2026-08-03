@@ -298,7 +298,7 @@ impl From<PyUMesh> for mf::UMesh {
 }
 
 /// Boolean-like operation to perform on two 2D meshes.
-#[pyclass(eq, eq_int, name = "OverlayOperation")]
+#[pyclass(eq, eq_int, from_py_object, name = "OverlayOperation")]
 #[derive(Clone, Copy, PartialEq)]
 pub enum PyOverlayOperation {
     /// Refine `mesh1` with the edges of `mesh2` while keeping `mesh1`'s domain.
