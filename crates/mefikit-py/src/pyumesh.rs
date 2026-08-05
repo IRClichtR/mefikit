@@ -267,6 +267,15 @@ impl PyUMesh {
         self.inner.eval_update_field(name, None, expr.into());
     }
 
+    fn split(&self) -> Self {
+        let new_mesh = mf::split(self.inner.view());
+        new_mesh.into()
+    }
+
+    fn num_elements(&self) -> usize {
+        self.inner.num_elements()
+    }
+
     /// Computes the boolean overlay of this mesh (as mesh1) with `mesh2`.
     ///
     /// The operation defaults to `OverlayOperation.IMPRINT` which refines the domain of

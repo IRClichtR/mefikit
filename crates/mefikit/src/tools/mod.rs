@@ -61,6 +61,8 @@ pub mod overlay;
 pub mod selector;
 /// Node snapping to merge nearby nodes.
 pub mod snap;
+/// Cell splitting to create finer meshes.
+pub mod split_cells;
 pub mod spatial_index;
 
 pub use centroids::*;
@@ -73,3 +75,4 @@ pub use neighbours::*;
 pub use overlay::*;
 pub use selector::*;
 pub use snap::*;
+pub use split_cells::*;
