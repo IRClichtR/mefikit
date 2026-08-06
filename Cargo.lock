@@ -653,9 +653,9 @@ dependencies = [
 
 [[package]]
 name = "hdf5-metno-src"
-version = "0.10.3"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffa848dfefcedb9778083a799c96e1ec620757e54f6649e525e08bd8600a4595"
+checksum = "3e8dfed88a20aca1e594f0e2e2f2c9115e0812ba20bbea1ef7c99e0142dc84b9"
 dependencies = [
  "cmake",
 ]
