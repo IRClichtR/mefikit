@@ -250,7 +250,7 @@ pub mod mesh_examples;
 pub mod tools;
 
 pub mod prelude {
-    pub use crate::element_traits::{ElementGeo, ElementTopo};
+    pub use crate::element_traits::{ElementGeo, ElementGroups, ElementTopo};
     #[cfg(feature = "io")]
     pub use crate::io::{read, write};
     pub use crate::mesh::{

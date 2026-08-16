@@ -6,6 +6,7 @@
 
 pub mod cut;
 mod element_geo;
+pub mod element_groups;
 mod element_topo;
 mod symmetry;
 mod utils;
@@ -13,5 +14,6 @@ mod utils;
 pub use crate::geometry::{Intersection, Intersections, PointId, intersect_seg_seg};
 pub use cut::Cutable;
 pub use element_geo::ElementGeo;
+pub use element_groups::ElementGroups;
 pub use element_topo::ElementTopo;
 pub use utils::SortedVecKey;

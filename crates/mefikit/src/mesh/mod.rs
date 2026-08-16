@@ -16,7 +16,7 @@ mod umesh;
 pub use connectivity::{Connectivity, ConnectivityView};
 pub use dimension::Dimension;
 pub use element::{Element, ElementId, ElementLike, ElementMut, ElementType, Regularity};
-pub use element_block::ElementBlockView;
+pub use element_block::{ArcGroups, ElementBlockView};
 pub use element_ids::ElementIds;
 pub use element_ids_set::ElementIdsSet;
 pub use fields::{

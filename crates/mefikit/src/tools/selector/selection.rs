@@ -349,8 +349,6 @@ impl Select for GroupSelection {
         match self {
             Self::IncludeGroup(name) => Self::include_group(name, view, eids_in),
             Self::ExcludeGroup(name) => Self::exclude_group(name, view, eids_in),
-            Self::IncludeFamily(fid) => Self::include_family(*fid, view, eids_in),
-            Self::ExcludeFamily(fid) => Self::exclude_family(*fid, view, eids_in),
         }
     }
 }

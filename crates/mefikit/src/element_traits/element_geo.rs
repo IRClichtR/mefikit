@@ -329,22 +329,22 @@ mod tests {
     use crate::mesh::{Element, ElementType};
     use approx::assert_abs_diff_eq;
     use ndarray as nd;
-    use std::collections::BTreeMap;
 
     #[test]
     fn test_coord2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let p0 = elem.coord2(0);
         assert_eq!(p0, na::Point2::new(0.0, 0.0));
@@ -356,16 +356,17 @@ mod tests {
     fn test_coord2_ref() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let c0: &[f64; 2] = elem.coord2_ref(0);
         assert_eq!(c0, &[0.0, 0.0]);
@@ -375,16 +376,17 @@ mod tests {
     fn test_coords2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let coords: Vec<_> = elem.coords2().collect();
         assert_eq!(coords.len(), 3);
@@ -394,16 +396,17 @@ mod tests {
     fn test_coord3() {
         let coords = nd::array![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let p0 = elem.coord3(0);
         assert_eq!(p0, na::Point3::new(0.0, 0.0, 0.0));
@@ -413,16 +416,17 @@ mod tests {
     fn test_coords3() {
         let coords = nd::array![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let coords: Vec<_> = elem.coords3().collect();
         assert_eq!(coords.len(), 3);
@@ -432,16 +436,17 @@ mod tests {
     fn test_coords() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let coords: Vec<_> = elem.coords().collect();
         assert_eq!(coords.len(), 3);
@@ -451,16 +456,17 @@ mod tests {
     fn test_measure2_quad4() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let conn = &[0, 1, 3, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::QUAD4,
+            &groups,
         );
         assert_abs_diff_eq!(elem.measure2(), 1.0, epsilon = 1e-10);
     }
@@ -469,16 +475,17 @@ mod tests {
     fn test_measure2_seg2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0]];
         let conn = &[0, 1];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::SEG2,
+            &groups,
         );
         assert_abs_diff_eq!(elem.measure2(), 1.0, epsilon = 1e-10);
     }
@@ -487,16 +494,17 @@ mod tests {
     fn test_centroid2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let centroid = elem.centroid2();
         assert_abs_diff_eq!(centroid[0], 1.0 / 3.0, epsilon = 1e-10);
@@ -512,16 +520,17 @@ mod tests {
             [0.0, 0.0, 1.0]
         ];
         let conn = &[0, 1, 2, 3];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TET4,
+            &groups,
         );
         let centroid = elem.centroid3();
         assert_abs_diff_eq!(centroid[0], 0.25, epsilon = 1e-10);
@@ -538,16 +547,17 @@ mod tests {
             [0.0, 0.0, 1.0]
         ];
         let conn = &[0, 1, 2, 3];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TET4,
+            &groups,
         );
         let phed = elem.to_polyhedron();
         for p in [
@@ -673,16 +683,17 @@ mod tests {
             11,
             usize::MAX, //
         ];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::PHED,
+            &groups,
         );
         let phed = elem.to_polyhedron();
         assert_eq!(phed.num_faces(), 6);

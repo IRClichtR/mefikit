@@ -70,7 +70,7 @@ where
         for (&et, block) in self.element_blocks.iter() {
             match &block.connectivity {
                 ConnectivityBase::Regular(arr) => {
-                    view.add_regular_block(et, arr.view(), Some(block.families.view()))
+                    view.add_regular_block(et, arr.view(), Some(block.families()))
                 }
                 ConnectivityBase::Poly(conn) => {
                     view.add_poly_block(et, conn.data.view(), conn.offsets.view())
@@ -411,6 +411,54 @@ where
             .collect();
         Some(FieldBase::new(old_field_map))
     }
+
+    // ==================== Group Query Operations ====================
+
+    /// Check if an element belongs to a group (works for both UMesh and UMeshView).
+    pub fn in_group(&self, element_id: ElementId, group: &str) -> bool {
+        self.element_blocks
+            .get(&element_id.element_type())
+            .map(|block| block.in_group_local(element_id.index(), group))
+            .unwrap_or(false)
+    }
+
+    /// Get all groups an element belongs to (works for both UMesh and UMeshView).
+    pub fn element_groups(&self, element_id: ElementId) -> Vec<String> {
+        self.element_blocks
+            .get(&element_id.element_type())
+            .map(|block| block.element_groups_local(element_id.index()))
+            .unwrap_or_default()
+    }
+
+    /// Get all elements belonging to a group (works for both UMesh and UMeshView).
+    pub fn group_elements(&self, group: &str) -> ElementIds {
+        let mut result = ElementIds::new();
+        for (et, block) in &self.element_blocks {
+            let local_indices = block.group_elements_local(group);
+            if !local_indices.is_empty() {
+                result.add_block(*et, local_indices);
+            }
+        }
+        result
+    }
+
+    /// List all group names across all blocks (works for both UMesh and UMeshView).
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names = std::collections::HashSet::new();
+        for block in self.element_blocks.values() {
+            for name in block.groups().keys() {
+                names.insert(name.clone());
+            }
+        }
+        names.into_iter().collect()
+    }
+
+    /// Check if a group exists (works for both UMesh and UMeshView).
+    pub fn has_group(&self, group: &str) -> bool {
+        self.element_blocks
+            .values()
+            .any(|block| block.groups().contains_key(group))
+    }
 }
 
 impl<'a> UMeshView<'a> {
@@ -646,7 +694,8 @@ impl UMesh {
             );
             let element = self.element_mut(old_eid);
             element.connectivity.copy_from_slice(new_elem.connectivity);
-            *element.family = *new_elem.family;
+            // Note: family is not directly copyable since it's an implementation detail.
+            // The replace operation preserves the original family assignment.
         }
         self
     }
@@ -688,6 +737,175 @@ impl UMesh {
             self.element_blocks.insert(et, block);
         }
         old_mesh
+    }
+
+    // ==================== Group Operations ====================
+
+    /// Add elements to a group. Automatically refines families.
+    pub fn add_to_group(&mut self, group: &str, element_ids: &ElementIds) {
+        for (et, indices) in element_ids.iter_blocks() {
+            if let Some(block) = self.element_blocks.get_mut(et) {
+                block.add_to_group_internal(group, indices);
+            }
+        }
+    }
+
+    /// Remove elements from a group. Automatically refines families.
+    pub fn remove_from_group(&mut self, group: &str, element_ids: &ElementIds) {
+        for (et, indices) in element_ids.iter_blocks() {
+            if let Some(block) = self.element_blocks.get_mut(et) {
+                block.remove_from_group_internal(group, indices);
+            }
+        }
+    }
+
+    /// Set multiple groups at once. Most efficient way to define groups.
+    /// Replaces all group definitions with the provided map.
+    pub fn set_groups(&mut self, groups: BTreeMap<String, ElementIds>) {
+        // Convert ElementIds to per-block Vec<usize> maps
+        let mut per_block_groups: BTreeMap<ElementType, BTreeMap<String, Vec<usize>>> =
+            BTreeMap::new();
+
+        for (group_name, element_ids) in groups {
+            for (et, indices) in element_ids.iter_blocks() {
+                per_block_groups
+                    .entry(*et)
+                    .or_default()
+                    .entry(group_name.clone())
+                    .or_default()
+                    .extend(indices.iter().cloned());
+            }
+        }
+
+        // Apply to each block
+        for (et, block_groups) in per_block_groups {
+            if let Some(block) = self.element_blocks.get_mut(&et) {
+                block.set_groups_internal(block_groups);
+            }
+        }
+    }
+
+    /// Add elements to multiple groups at once.
+    pub fn add_to_groups(&mut self, groups: &BTreeMap<String, ElementIds>) {
+        for (group_name, element_ids) in groups {
+            self.add_to_group(group_name, element_ids);
+        }
+    }
+
+    /// Delete a group entirely.
+    pub fn delete_group(&mut self, group: &str) {
+        for block in self.element_blocks.values_mut() {
+            let groups = block.groups_mut();
+            groups.remove(group);
+        }
+        self.recompute_families_all();
+    }
+
+    /// Rename a group.
+    pub fn rename_group(&mut self, old_name: &str, new_name: &str) {
+        for block in self.element_blocks.values_mut() {
+            let groups = block.groups_mut();
+            if let Some(family_ids) = groups.remove(old_name) {
+                groups.insert(new_name.to_string(), family_ids);
+            }
+        }
+        self.recompute_families_all();
+    }
+
+    /// Recompute families on all blocks.
+    fn recompute_families_all(&mut self) {
+        for block in self.element_blocks.values_mut() {
+            block.recompute_families();
+        }
+    }
+
+    /// Union of two groups.
+    pub fn union_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
+        let mut result = self.group_elements(group_a);
+        let group_b_elements = self.group_elements(group_b);
+
+        // Add group_b elements to result (avoiding duplicates)
+        for (et, indices) in group_b_elements.iter_blocks() {
+            for &idx in indices {
+                if !result.contains(super::element::ElementId::new(*et, idx)) {
+                    result.add(*et, idx);
+                }
+            }
+        }
+        result
+    }
+
+    /// Intersection of two groups.
+    pub fn intersect_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
+        let group_a_elements = self.group_elements(group_a);
+        let group_b_elements = self.group_elements(group_b);
+        let mut result = ElementIds::new();
+
+        for (et, indices_a) in group_a_elements.iter_blocks() {
+            if let Some(indices_b) = group_b_elements.get(et) {
+                let common: Vec<usize> = indices_a
+                    .iter()
+                    .filter(|idx| indices_b.contains(idx))
+                    .cloned()
+                    .collect();
+                if !common.is_empty() {
+                    result.add_block(*et, common);
+                }
+            }
+        }
+        result
+    }
+
+    /// Difference of two groups (elements in group_a but not in group_b).
+    pub fn diff_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
+        let group_a_elements = self.group_elements(group_a);
+        let group_b_elements = self.group_elements(group_b);
+        let mut result = ElementIds::new();
+
+        for (et, indices_a) in group_a_elements.iter_blocks() {
+            if let Some(indices_b) = group_b_elements.get(et) {
+                let diff: Vec<usize> = indices_a
+                    .iter()
+                    .filter(|idx| !indices_b.contains(idx))
+                    .cloned()
+                    .collect();
+                if !diff.is_empty() {
+                    result.add_block(*et, diff);
+                }
+            } else {
+                result.add_block(*et, indices_a.clone());
+            }
+        }
+        result
+    }
+
+    /// Symmetric difference of two groups (elements in either group but not both).
+    pub fn sym_diff_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
+        let mut result = self.diff_groups(group_a, group_b);
+        let group_b_elements = self.group_elements(group_a);
+        let group_a_elements = self.group_elements(group_b);
+
+        for (et, indices_b) in group_b_elements.iter_blocks() {
+            if let Some(indices_a) = group_a_elements.get(et) {
+                let diff: Vec<usize> = indices_b
+                    .iter()
+                    .filter(|idx| !indices_a.contains(idx))
+                    .cloned()
+                    .collect();
+                for idx in diff {
+                    if !result.contains(super::element::ElementId::new(*et, idx)) {
+                        result.add(*et, idx);
+                    }
+                }
+            } else {
+                for &idx in indices_b {
+                    if !result.contains(super::element::ElementId::new(*et, idx)) {
+                        result.add(*et, idx);
+                    }
+                }
+            }
+        }
+        result
     }
 }
 

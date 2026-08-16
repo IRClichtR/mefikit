@@ -230,22 +230,22 @@ mod tests {
     use super::*;
     use crate::mesh::{Element, ElementType};
     use ndarray as nd;
-    use std::collections::BTreeMap;
 
     #[test]
     fn test_subentities_quad4_codim1() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let conn = &[0, 1, 2, 3];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::QUAD4,
+            &groups,
         );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D1));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 4 edges
@@ -259,16 +259,17 @@ mod tests {
     fn test_subentities_quad4_codim2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let conn = &[0, 1, 2, 3];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::QUAD4,
+            &groups,
         );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D2));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 4 vertices
@@ -281,16 +282,17 @@ mod tests {
     fn test_subentities_tri3_codim1() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D1));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 3 edges
@@ -303,16 +305,17 @@ mod tests {
     fn test_subentities_tri3_codim2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let subentities = elem.subentities(Some(crate::mesh::Dimension::D2));
         assert_eq!(subentities.len(), 1); // One Connectivity containing all 3 vertices
@@ -325,16 +328,17 @@ mod tests {
     fn test_subentities_seg2() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0]];
         let conn = &[0, 1];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::SEG2,
+            &groups,
         );
         let subentities = elem.subentities(None); // defaults to D1
         assert_eq!(subentities.len(), 1); // One Connectivity containing both vertices
@@ -347,16 +351,17 @@ mod tests {
     fn test_to_simplexes_quad4() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let conn = &[0, 1, 2, 3];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::QUAD4,
+            &groups,
         );
         let simplexes = elem.to_simplexes();
         assert_eq!(simplexes.len(), 2); // QUAD4 -> 2 TRI3
@@ -369,16 +374,17 @@ mod tests {
     fn test_to_simplexes_tri3() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
+
         let family = 0;
+        let groups = crate::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let simplexes = elem.to_simplexes();
         assert_eq!(simplexes.len(), 1); // TRI3 -> 1 TRI3
