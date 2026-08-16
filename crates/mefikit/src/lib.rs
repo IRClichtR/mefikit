@@ -11,7 +11,7 @@
 //! - [`mesh`] - Core mesh data structures (`UMesh`, `UMeshView`, element blocks)
 //! - [`element_traits`] - Geometric and topological operations on elements
 //! - [`tools`] - Mesh algorithms (selection, cracking, extrusion, etc.)
-//! - [`io`] - File I/O for various mesh formats
+//! - `io` - File I/O for various mesh formats
 
 /// This module defines geometrical operations on elements.
 ///

@@ -9,7 +9,7 @@ use crate::mesh::IndirectIndexOwned;
 
 /// An owned polyhedron in 3D space.
 ///
-/// The faces are lists of vertex indices into [`Self::points`], stored as an
+/// The faces are lists of vertex indices into `Self::points`, stored as an
 /// [`IndirectIndexOwned`]: a flat data array plus cumulative offsets, so variable-length faces
 /// use one contiguous allocation instead of one per face. They are expected to be consistently
 /// oriented so that the signed volume computed by the divergence theorem is non-zero; the

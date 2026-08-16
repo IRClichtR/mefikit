@@ -1,6 +1,6 @@
 //! An indirect indexing structure for variable-length arrays.
 //!
-//! [`IndirectIndex`] stores data in a flat array with an offsets array to
+//! `IndirectIndex` stores data in a flat array with an offsets array to
 //! delineate sub-slices, enabling efficient storage of variable-length
 //! sequences (e.g., polygonal element connectivity).
 
@@ -111,7 +111,7 @@ where
     }
 }
 
-/// Immutable iterator over sub-slices of an [`IndirectIndex`].
+/// Immutable iterator over sub-slices of an `IndirectIndex`.
 pub struct IndirectIndexIter<'a, T>
 where
     T: 'a,
@@ -154,7 +154,7 @@ where
     }
 }
 
-/// Mutable iterator over sub-slices of an [`IndirectIndex`].
+/// Mutable iterator over sub-slices of an `IndirectIndex`.
 pub struct IndirectIndexIterMut<'a, T>
 where
     T: 'a,
