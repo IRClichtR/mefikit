@@ -281,3 +281,37 @@ plotter.show()
 
 
 ![png](topological_tools_files/topological_tools_22_0.png)
+
+
+
+## Split
+
+This tool is usefull to split cells into smaller cells. It does not change the topology of the domain not the element type.
+Using it it gives you 2^n times the number of elements where n is the dimension of of the elements.
+
+
+```python
+x = np.linspace(0.0, 3.0, 2, endpoint=True)
+y = np.logspace(0.0, 1.0, 2, endpoint=True)
+z = range(2)
+surf = mf.build_cmesh(x, y, z)
+```
+
+
+```python
+surf_splitted = surf.split()
+```
+
+
+```python
+# pv.set_jupyter_backend("trame")
+pt = pv.Plotter()
+pt.add_mesh(surf_splitted.to_pyvista().shrink(0.9), show_edges=True, edge_color="red")
+# pt.add_mesh(surf.to_pyvista().shrink(0.9), show_edges=True)
+pt.camera_position
+pt.show()
+```
+
+
+
+![png](topological_tools_files/topological_tools_26_0.png)
