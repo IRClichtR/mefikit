@@ -1,54 +1,51 @@
-use std::num::NonZero;
-
 use crate::mesh::{ElementLike, IndirectIndexOwned, UMesh, UMeshView};
 
 use itertools::Itertools;
-use kiddo::{ImmutableKdTree, dist::SquaredEuclidean};
 use rustc_hash::FxHashMap;
+
+fn sorted_indices_for<const T: usize>(points: &[[f64; T]]) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..points.len()).collect();
+    indices.sort_by(|&a, &b| {
+        for (pa, pb) in points[a].iter().zip(points[b].iter()) {
+            match pa.partial_cmp(pb) {
+                Some(std::cmp::Ordering::Equal) => continue,
+                other => return other.unwrap_or(std::cmp::Ordering::Equal),
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+    indices
+}
+
+fn closest_within<const T: usize>(
+    target: &[f64; T],
+    sorted_indices: &[usize],
+    points: &[[f64; T]],
+    eps: f64,
+) -> Option<usize> {
+    let eps_sq = eps * eps;
+    let left = sorted_indices.partition_point(|&i| points[i][0] < target[0] - eps);
+    let right = sorted_indices.partition_point(|&i| points[i][0] <= target[0] + eps);
+
+    let mut best_dist_sq = eps_sq;
+    let mut best_idx = None;
+    for &i in &sorted_indices[left..right] {
+        let dist_sq: f64 = target
+            .iter()
+            .zip(points[i].iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        if dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best_idx = Some(i);
+        }
+    }
+    best_idx
+}
 
 fn snap_dim_n<const T: usize>(subject: &mut UMesh, reference: &UMeshView, eps: f64) {
     let ref_points: Vec<[f64; T]> = reference
         .used_nodes()
-        .into_iter()
-        .map(|i| {
-            reference
-                .coords()
-                .row(i)
-                .to_slice()
-                .unwrap()
-                .try_into()
-                .unwrap()
-        })
-        .collect();
-    let tree = ImmutableKdTree::new_from_slice(ref_points.as_slice()).unwrap();
-    for node in subject.used_nodes() {
-        let coord: &mut [f64; T] = subject
-            .coords
-            .row_mut(node)
-            .into_slice()
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let closest = tree
-            .query(coord)
-            .best_n_within::<SquaredEuclidean<f64>>(eps.powi(2), NonZero::new(1).unwrap())
-            .execute()
-            .into_iter()
-            .next();
-        if let Some(c) = closest {
-            coord.copy_from_slice(&ref_points[c.item as usize])
-        }
-    }
-}
-
-fn duplicates_from_dim_n<const T: usize>(
-    subject: &UMeshView,
-    reference: &UMeshView,
-    eps: f64,
-) -> FxHashMap<usize, Vec<usize>> {
-    let mut res: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
-    let used_nodes = reference.used_nodes();
-    let ref_points: Vec<[f64; T]> = used_nodes
         .iter()
         .map(|&i| {
             reference
@@ -60,7 +57,43 @@ fn duplicates_from_dim_n<const T: usize>(
                 .unwrap()
         })
         .collect();
-    let tree = ImmutableKdTree::new_from_slice(ref_points.as_slice()).unwrap();
+    let sorted_ref = sorted_indices_for(&ref_points);
+
+    for node in subject.used_nodes() {
+        let coord: &mut [f64; T] = subject
+            .coords
+            .row_mut(node)
+            .into_slice()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        if let Some(idx) = closest_within(coord, &sorted_ref, &ref_points, eps) {
+            coord.copy_from_slice(&ref_points[idx]);
+        }
+    }
+}
+
+fn duplicates_from_dim_n<const T: usize>(
+    subject: &UMeshView,
+    reference: &UMeshView,
+    eps: f64,
+) -> FxHashMap<usize, Vec<usize>> {
+    let mut res: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
+    let ref_used_nodes = reference.used_nodes();
+    let ref_points: Vec<[f64; T]> = ref_used_nodes
+        .iter()
+        .map(|&i| {
+            reference
+                .coords()
+                .row(i)
+                .to_slice()
+                .unwrap()
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+    let sorted_ref = sorted_indices_for(&ref_points);
+
     for node in subject.used_nodes() {
         let coord: &[f64; T] = subject
             .coords
@@ -69,14 +102,8 @@ fn duplicates_from_dim_n<const T: usize>(
             .unwrap()
             .try_into()
             .unwrap();
-        let closest = tree
-            .query(coord)
-            .best_n_within::<SquaredEuclidean<f64>>(eps.powi(2), NonZero::new(1).unwrap())
-            .execute()
-            .into_iter()
-            .next();
-        if let Some(c) = closest {
-            let close_nodes = res.entry(used_nodes[c.item as usize]).or_default();
+        if let Some(idx) = closest_within(coord, &sorted_ref, &ref_points, eps) {
+            let close_nodes = res.entry(ref_used_nodes[idx]).or_default();
             close_nodes.push(node);
         }
     }
