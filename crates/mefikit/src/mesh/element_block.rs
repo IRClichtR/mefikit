@@ -199,6 +199,16 @@ where
         &self.groups.0
     }
 
+    /// Returns a reference to the groups wrapper (ArcGroups).
+    pub(crate) fn arc_groups(&self) -> &ArcGroups {
+        &self.groups
+    }
+
+    /// Set the groups on this block view.
+    pub(crate) fn set_groups(&mut self, groups: ArcGroups) {
+        self.groups = groups;
+    }
+
     /// Returns a mutable reference to the groups map.
     pub fn groups_mut(&mut self) -> &mut BTreeMap<String, BTreeSet<usize>> {
         Arc::make_mut(&mut self.groups.0)

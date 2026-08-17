@@ -1,7 +1,6 @@
 use numpy as np;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::types::PyDictMethods;
+use pyo3::types::{PyDict, PyDictMethods, PyList};
 
 use mefikit::mesh::ElementIds;
 
@@ -38,14 +37,27 @@ impl From<ElementIds> for PyElementIds {
     }
 }
 
+fn extract_ids(value: &Bound<'_, PyAny>) -> Vec<usize> {
+    if let Ok(arr) = value.extract::<np::PyReadonlyArray1<usize>>() {
+        arr.as_array().to_vec()
+    } else if let Ok(list) = value.cast::<PyList>() {
+        list.iter()
+            .map(|item| item.extract::<usize>().unwrap())
+            .collect()
+    } else if let Ok(seq) = value.extract::<Vec<usize>>() {
+        seq
+    } else {
+        panic!("Expected a numpy array, a list, or a sequence of integers");
+    }
+}
+
 impl PyElementIds {
     pub fn from_dict<'py>(dict: &Bound<'py, PyDict>) -> Self {
         let mut eids = ElementIds::new();
         for (key, value) in dict.iter() {
             let et_str: &str = key.extract().unwrap();
             let et = str_to_etype(et_str);
-            let ids_array: np::PyReadonlyArray1<usize> = value.extract().unwrap();
-            let ids = ids_array.as_array().to_vec();
+            let ids = extract_ids(&value);
             eids.add_block(et, ids);
         }
         PyElementIds { inner: eids }

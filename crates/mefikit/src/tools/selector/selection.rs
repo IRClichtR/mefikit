@@ -188,6 +188,22 @@ impl Selection {
             right: Arc::new(right),
         })
     }
+    pub fn group(self, name: &str) -> Self {
+        let right = Self::GroupSelection(GroupSelection::IncludeGroup(name.to_string()));
+        Self::BinarayExpr(BinarayExpr {
+            operator: BooleanOp::And,
+            left: Arc::new(self),
+            right: Arc::new(right),
+        })
+    }
+    pub fn exclude_group(self, name: &str) -> Self {
+        let right = Self::GroupSelection(GroupSelection::ExcludeGroup(name.to_string()));
+        Self::BinarayExpr(BinarayExpr {
+            operator: BooleanOp::And,
+            left: Arc::new(self),
+            right: Arc::new(right),
+        })
+    }
 }
 
 /// Creates a selection for nodes inside an axis-aligned 3D bounding box.
@@ -248,6 +264,16 @@ pub fn dimensions(dims: Vec<Dimension>) -> Selection {
 /// Creates a selection for elements by their IDs.
 pub fn ids(eids: ElementIds) -> Selection {
     Selection::ElementSelection(ElementSelection::InIds(eids))
+}
+
+/// Creates a selection for elements belonging to a named group.
+pub fn group(name: &str) -> Selection {
+    Selection::GroupSelection(GroupSelection::IncludeGroup(name.to_string()))
+}
+
+/// Creates a selection for elements NOT belonging to a named group.
+pub fn exclude_group(name: &str) -> Selection {
+    Selection::GroupSelection(GroupSelection::ExcludeGroup(name.to_string()))
 }
 
 impl Select for Selection {

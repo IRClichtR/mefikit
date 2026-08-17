@@ -10,7 +10,10 @@ mod select;
 #[pymodule]
 mod sel {
     #[pymodule_export]
-    use super::select::{bbox, circle, ids, nbbox, ncircle, nids, nrect, nsphere, rect, sphere};
+    use super::select::{
+        bbox, circle, exclude_group, group, ids, nbbox, ncircle, nids, nrect, nsphere, rect,
+        sphere, types,
+    };
 }
 
 #[pymodule]

@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 
 use mefikit::prelude as mf;
 
+use super::element::str_to_etype;
 use super::element_ids::PyElementIds;
 
 #[pyclass(str, from_py_object)]
@@ -82,6 +83,19 @@ pub fn ids<'py>(eids: Bound<'py, PyDict>) -> PySelection {
     let eids = PyElementIds::from_dict(&eids);
     mf::sel::ids(eids.into()).into()
 }
+#[pyfunction]
+pub fn group(name: &str) -> PySelection {
+    mf::sel::group(name).into()
+}
+#[pyfunction]
+pub fn exclude_group(name: &str) -> PySelection {
+    mf::sel::exclude_group(name).into()
+}
+#[pyfunction]
+pub fn types(types_str: Vec<String>) -> PySelection {
+    let elems: Vec<mf::ElementType> = types_str.iter().map(|s| str_to_etype(s)).collect();
+    mf::sel::types(elems).into()
+}
 
 #[pymethods]
 impl PySelection {
@@ -127,5 +141,11 @@ impl PySelection {
     }
     pub fn circle(&self, center: [f64; 2], r2: f64) -> PySelection {
         self.inner.clone().circle(center, r2).into()
+    }
+    pub fn group(&self, name: &str) -> PySelection {
+        self.inner.clone().group(name).into()
+    }
+    pub fn exclude_group(&self, name: &str) -> PySelection {
+        self.inner.clone().exclude_group(name).into()
     }
 }

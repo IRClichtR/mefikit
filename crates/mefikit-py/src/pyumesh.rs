@@ -5,7 +5,7 @@ use std::{
 };
 
 use mefikit::{
-    mesh::{ElementType, FieldArcD},
+    mesh::{ElementIds, ElementType, FieldArcD},
     prelude as mf,
     tools::{
         Descendable, Measurable, MeshSelect, NodeDuplicates, Overlayable,
@@ -19,6 +19,7 @@ use numpy::ndarray as nd;
 use numpy::{self as np, PyReadonlyArray2};
 
 use super::element::{etype_to_str, str_to_etype};
+use crate::element_ids::PyElementIds;
 use crate::{pyfield::PyField, select::PySelection};
 
 #[pyclass(str)]
@@ -288,6 +289,93 @@ impl PyUMesh {
 
     fn num_elements(&self) -> usize {
         self.inner.num_elements()
+    }
+
+    // ==================== Group Operations ====================
+
+    /// Create a group from a selection expression.
+    ///
+    /// Evaluates the selection on this mesh and adds all matching elements
+    /// to a named group. This is the primary way to create groups.
+    fn select_to_group(&mut self, name: &str, expr: PySelection) {
+        let eids = self.inner.select_ids(expr.into());
+        self.inner.add_to_group(name, &eids);
+    }
+
+    /// Add elements to a group.
+    ///
+    /// Accepts either a Selection expression (elements matching the expression
+    /// are added) or a dict of element IDs (e.g. {"QUAD4": [0, 1, 2]}).
+    #[pyo3(signature = (name, source))]
+    fn add_to_group(&mut self, name: &str, source: &Bound<'_, PyAny>) -> PyResult<()> {
+        if let Ok(expr) = source.extract::<PySelection>() {
+            let eids = self.inner.select_ids(expr.into());
+            self.inner.add_to_group(name, &eids);
+        } else if let Ok(dict) = source.cast::<pyo3::types::PyDict>() {
+            let eids = PyElementIds::from_dict(dict);
+            self.inner.add_to_group(name, &eids.into());
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "source must be a Selection or a dict of element IDs",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Remove elements from a group.
+    ///
+    /// Accepts either a Selection expression (elements matching the expression
+    /// are removed) or a dict of element IDs (e.g. {"QUAD4": [0, 1, 2]}).
+    #[pyo3(signature = (name, source))]
+    fn remove_from_group(&mut self, name: &str, source: &Bound<'_, PyAny>) -> PyResult<()> {
+        if let Ok(expr) = source.extract::<PySelection>() {
+            let eids = self.inner.select_ids(expr.into());
+            self.inner.remove_from_group(name, &eids);
+        } else if let Ok(dict) = source.cast::<pyo3::types::PyDict>() {
+            let eids = PyElementIds::from_dict(dict);
+            self.inner.remove_from_group(name, &eids.into());
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "source must be a Selection or a dict of element IDs",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Delete a group entirely.
+    fn delete_group(&mut self, name: &str) {
+        self.inner.delete_group(name);
+    }
+
+    /// Rename a group.
+    fn rename_group(&mut self, old_name: &str, new_name: &str) {
+        self.inner.rename_group(old_name, new_name);
+    }
+
+    /// Replace all groups at once from a dict.
+    ///
+    /// Each key is a group name, each value is a dict mapping element type
+    /// strings to lists of element indices.
+    fn set_groups(&mut self, groups: BTreeMap<String, BTreeMap<String, Vec<usize>>>) {
+        let mut rust_groups: BTreeMap<String, ElementIds> = BTreeMap::new();
+        for (name, type_map) in groups {
+            let mut eids = ElementIds::new();
+            for (et_str, indices) in type_map {
+                eids.add_block(str_to_etype(&et_str), indices);
+            }
+            rust_groups.insert(name, eids);
+        }
+        self.inner.set_groups(rust_groups);
+    }
+
+    /// List all group names.
+    fn group_names(&self) -> Vec<String> {
+        self.inner.group_names()
+    }
+
+    /// Check if a group exists.
+    fn has_group(&self, name: &str) -> bool {
+        self.inner.has_group(name)
     }
 
     /// Computes the boolean overlay of this mesh (as mesh1) with `mesh2`.

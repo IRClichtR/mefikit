@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use super::connectivity::ConnectivityBase;
 use super::element_block::{
-    ElementBlock, ElementBlockBase, ElementBlockView, IntoElementBlockEntry,
+    ArcGroups, ElementBlock, ElementBlockBase, ElementBlockView, IntoElementBlockEntry,
 };
 
 /// An unstrustured mesh.
@@ -81,6 +81,10 @@ where
                 .iter()
                 .map(|(k, v)| (k.clone(), v.view()))
                 .collect();
+            view.element_blocks
+                .get_mut(&et)
+                .unwrap()
+                .set_groups(ArcGroups(std::sync::Arc::clone(&block.arc_groups().0)));
         }
         view
     }
