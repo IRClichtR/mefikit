@@ -257,6 +257,18 @@ where
         self.offsets = vec_offsets.into();
     }
 
+    /// Appends a new sub-slice to the index.
+    pub fn push_iter<I: IntoIterator<Item = T>>(&mut self, elem: I) {
+        let data = std::mem::replace(&mut self.data, nd::arr1(&[]));
+        let (mut vec_data, _) = data.into_raw_vec_and_offset();
+        let offsets = std::mem::replace(&mut self.offsets, nd::arr1(&[]));
+        let (mut vec_offsets, _) = offsets.into_raw_vec_and_offset();
+        vec_data.extend(elem);
+        vec_offsets.push(vec_data.len());
+        self.data = vec_data.into();
+        self.offsets = vec_offsets.into();
+    }
+
     /// Appends a view-based sub-slice to the index.
     pub fn push_conn(&mut self, elem: nd::ArrayView1<'_, T>) {
         self.data.append(nd::Axis(0), elem).unwrap();

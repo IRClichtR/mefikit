@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use super::connectivity::ConnectivityBase;
 use super::element_block::{
-    ArcGroups, ElementBlock, ElementBlockBase, ElementBlockView, IntoElementBlockEntry,
+    ElementBlock, ElementBlockBase, ElementBlockView, IntoElementBlockEntry,
 };
 
 /// An unstrustured mesh.
@@ -84,7 +84,7 @@ where
             view.element_blocks
                 .get_mut(&et)
                 .unwrap()
-                .set_groups(ArcGroups(std::sync::Arc::clone(&block.arc_groups().0)));
+                .set_groups(block.arc_groups().clone());
         }
         view
     }
@@ -821,95 +821,6 @@ impl UMesh {
         for block in self.element_blocks.values_mut() {
             block.recompute_families();
         }
-    }
-
-    /// Union of two groups.
-    pub fn union_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
-        let mut result = self.group_elements(group_a);
-        let group_b_elements = self.group_elements(group_b);
-
-        // Add group_b elements to result (avoiding duplicates)
-        for (et, indices) in group_b_elements.iter_blocks() {
-            for &idx in indices {
-                if !result.contains(super::element::ElementId::new(*et, idx)) {
-                    result.add(*et, idx);
-                }
-            }
-        }
-        result
-    }
-
-    /// Intersection of two groups.
-    pub fn intersect_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
-        let group_a_elements = self.group_elements(group_a);
-        let group_b_elements = self.group_elements(group_b);
-        let mut result = ElementIds::new();
-
-        for (et, indices_a) in group_a_elements.iter_blocks() {
-            if let Some(indices_b) = group_b_elements.get(et) {
-                let common: Vec<usize> = indices_a
-                    .iter()
-                    .filter(|idx| indices_b.contains(idx))
-                    .cloned()
-                    .collect();
-                if !common.is_empty() {
-                    result.add_block(*et, common);
-                }
-            }
-        }
-        result
-    }
-
-    /// Difference of two groups (elements in group_a but not in group_b).
-    pub fn diff_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
-        let group_a_elements = self.group_elements(group_a);
-        let group_b_elements = self.group_elements(group_b);
-        let mut result = ElementIds::new();
-
-        for (et, indices_a) in group_a_elements.iter_blocks() {
-            if let Some(indices_b) = group_b_elements.get(et) {
-                let diff: Vec<usize> = indices_a
-                    .iter()
-                    .filter(|idx| !indices_b.contains(idx))
-                    .cloned()
-                    .collect();
-                if !diff.is_empty() {
-                    result.add_block(*et, diff);
-                }
-            } else {
-                result.add_block(*et, indices_a.clone());
-            }
-        }
-        result
-    }
-
-    /// Symmetric difference of two groups (elements in either group but not both).
-    pub fn sym_diff_groups(&self, group_a: &str, group_b: &str) -> ElementIds {
-        let mut result = self.diff_groups(group_a, group_b);
-        let group_b_elements = self.group_elements(group_a);
-        let group_a_elements = self.group_elements(group_b);
-
-        for (et, indices_b) in group_b_elements.iter_blocks() {
-            if let Some(indices_a) = group_a_elements.get(et) {
-                let diff: Vec<usize> = indices_b
-                    .iter()
-                    .filter(|idx| !indices_a.contains(idx))
-                    .cloned()
-                    .collect();
-                for idx in diff {
-                    if !result.contains(super::element::ElementId::new(*et, idx)) {
-                        result.add(*et, idx);
-                    }
-                }
-            } else {
-                for &idx in indices_b {
-                    if !result.contains(super::element::ElementId::new(*et, idx)) {
-                        result.add(*et, idx);
-                    }
-                }
-            }
-        }
-        result
     }
 }
 

@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::mesh::IndirectIndexOwned;
+
 use super::connectivity::{Connectivity, ConnectivityBase, ConnectivityView};
 use super::element::{Element, ElementMut, ElementType};
 use super::indirect_index::IndirectIndex;
@@ -274,7 +276,7 @@ where
                 .map(|(n, f)| (n.clone(), f.view()))
                 .collect(),
             families: self.families.view(),
-            groups: ArcGroups(Arc::clone(&self.groups.0)),
+            groups: self.groups.clone(),
         }
     }
 }
@@ -395,16 +397,15 @@ impl ElementBlock {
         // Step 1: Snapshot element-level group membership using current families + groups.
         // This avoids the circular dependency where element_signature reads groups
         // that reference old family IDs while we're trying to recompute families.
-        let element_group_snapshot: Vec<Vec<String>> = (0..n)
-            .map(|i| {
-                let fid = self.families[i];
-                self.groups
-                    .iter()
-                    .filter(|(_, fids)| fids.contains(&fid))
-                    .map(|(name, _)| name.clone())
-                    .collect()
-            })
-            .collect();
+        let mut element_group_snapshot: IndirectIndexOwned<String> = IndirectIndexOwned::default();
+        for fid in &self.families {
+            let group_names = self
+                .groups
+                .iter()
+                .filter(|(_, fids)| fids.contains(fid))
+                .map(|(name, _)| name.clone());
+            element_group_snapshot.push_iter(group_names);
+        }
 
         // Step 2: Compute new family IDs from signatures (using the snapshot)
         let mut signature_to_family: HashMap<Vec<String>, usize> = HashMap::new();
@@ -415,7 +416,7 @@ impl ElementBlock {
                 id
             } else {
                 let id = signature_to_family.len();
-                signature_to_family.insert(sig.clone(), id);
+                signature_to_family.insert(sig.to_vec(), id);
                 id
             };
             new_families_vec[i] = family_id;
