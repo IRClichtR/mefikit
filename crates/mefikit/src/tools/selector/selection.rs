@@ -251,6 +251,11 @@ pub fn circle(center: [f64; 2], r2: f64) -> Selection {
     Selection::CentroidSelection(CentroidSelection::Circle { center, r2 })
 }
 
+/// Creates a selection matching every element of the mesh.
+pub fn all() -> Selection {
+    Selection::ElementSelection(ElementSelection::All)
+}
+
 /// Creates a selection for elements of specific types.
 pub fn types(elems: Vec<ElementType>) -> Selection {
     Selection::ElementSelection(ElementSelection::Types(elems))
@@ -351,6 +356,7 @@ impl Not for Selection {
 impl Select for ElementSelection {
     fn select<'a>(&'a self, _view: &'a UMeshView<'a>, eids_in: ElementIdsSet) -> ElementIdsSet {
         match self {
+            Self::All => eids_in,
             Self::Types(types) => Self::select_types(types.as_slice(), eids_in),
             Self::Dimensions(dims) => Self::select_dimensions(dims.as_slice(), eids_in),
             Self::InIds(ids) => Self::select_ids(ids.clone(), eids_in),

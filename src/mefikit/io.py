@@ -145,7 +145,7 @@ def install_conversions():
         if not with_fields:
             fields = {}
         else:
-            fields = self.fields()
+            fields = {n: ref.values() for n, ref in self.fields.items()}
             if not isinstance(with_fields, bool):
                 fields = {n: f for n, f in fields.items() if n in with_fields}
 

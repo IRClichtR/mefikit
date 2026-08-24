@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### Add
+
+- Python bindings: mapping-style field access via `mesh.fields`
+  (`mesh.fields[name]` handle, `ref[sel] = value` writes and `ref[sel]` reads
+  accepting selections or per-element-type id dicts, whole-domain reductions
+  `min`/`max`/`sum`/`mean`/`var`/`std`/`integral`, `values()` bulk export,
+  `keys()`/`items()`, `rename(old, new)`, `del mesh.fields[name]`).
+- Python bindings: mapping-style element groups via `mesh.groups`
+  (`mesh.groups[name] = selection | {etype: ids}`, `add`/`remove`, `ids()`,
+  `rename(old, new)`, `del mesh.groups[name]`).
+- Lazy selection API: `UMesh.select(expr)` returns a lightweight
+  `SelectionResult` (`ids()`, `len()`, regional reductions accepting field
+  expressions, `to_mesh(with_fields=True)` to materialize a sub-mesh).
+- Wildcard selector: `mf.sel.all()` / core `ElementSelection::All`, also
+  reachable through `None`, `...` or `[:]` wherever a selector is expected.
+- Bare field names as strings are accepted wherever a field value or
+  expression is expected (`mesh.fields["copy"] = "T"`, `ref[sel] = "T"`,
+  `mesh.select(sel).mean("T")`); unknown names raise a Python error.
+- Core: `mf::sel::all()` factory and field view/arc types exported through the
+  prelude.
+
+### Change
+
+- Removed the `UMesh`-level group methods (`select_to_group`,
+  `add_to_group`, `remove_from_group`, `delete_group`, `rename_group`,
+  `set_groups`, `group_names`, `has_group`); use the `mesh.groups` mapping.
+- Removed the tuple-key form `mesh.fields["name", sel] = value`; use
+  `mesh.fields["name"][sel] = value`.
+- `FieldRef.to_dict()` renamed to `values()`.
+- `UMesh.select()` now returns a lazy `SelectionResult` instead of a
+  materialized `UMesh`; use `.to_mesh()` where the sub-mesh is needed.
+
+### Fix
+
+- Referencing an unknown field name in a selection reduction or field
+  assignment now raises a Python error instead of aborting the process.
+- Row ordering when writing field values through element selections: rows are
+  written directly in selection order instead of being re-indexed by local
+  element ids.
+
 ## v0.1.5
 
 ### Add

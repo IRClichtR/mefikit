@@ -6,6 +6,16 @@ use mefikit::mesh::ElementIds;
 
 use super::element::{etype_to_str, str_to_etype};
 
+pub(crate) fn ids_to_pydict<'py>(py: Python<'py>, eids: &ElementIds) -> Bound<'py, PyDict> {
+    let dict = PyDict::new(py);
+    for (et, ids) in eids.iter_blocks() {
+        let arr = np::PyArray1::from_vec(py, ids.clone());
+        dict.set_item(etype_to_str(*et), arr)
+            .expect("element type strings are valid dict keys");
+    }
+    dict
+}
+
 #[pyclass]
 #[pyo3(name = "ElementIds")]
 pub struct PyElementIds {

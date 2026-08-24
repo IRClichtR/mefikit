@@ -3,6 +3,8 @@ use pyo3::prelude::*;
 mod element;
 mod element_ids;
 mod pyfield;
+mod pyfields;
+mod pygroups;
 mod pytransfer;
 mod pyumesh;
 mod select;
@@ -11,7 +13,7 @@ mod select;
 mod sel {
     #[pymodule_export]
     use super::select::{
-        bbox, circle, exclude_group, group, ids, nbbox, ncircle, nids, nrect, nsphere, rect,
+        all, bbox, circle, exclude_group, group, ids, nbbox, ncircle, nids, nrect, nsphere, rect,
         sphere, types,
     };
 }
@@ -45,6 +47,15 @@ mod mefipy {
 
     #[pymodule_export]
     use super::pyfield::PyField;
+
+    #[pymodule_export]
+    use super::pyfields::{PyFieldRef, PyFieldsMapping};
+
+    #[pymodule_export]
+    use super::pygroups::{PyGroupRef, PyGroupsMapping};
+
+    #[pymodule_export]
+    use super::select::PySelectionResult;
 
     #[pyfunction]
     #[pyo3(signature = (*args))]
