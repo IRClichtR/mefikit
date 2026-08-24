@@ -11,6 +11,8 @@ pv.set_plot_theme("dark")
 pv.set_jupyter_backend("static")
 ```
 
+## Setup
+
 
 ```python
 xmax = 5.0
@@ -55,16 +57,32 @@ volumes.boundaries().to_pyvista().plot(opacity=0.4)
 
 
 
-![png](example_bubbles_files/example_bubbles_6_0.png)
+![png](example_bubbles_files/example_bubbles_7_0.png)
 
 
+
+## Selecting bubbles
 
 
 ```python
-inner_bubbles = volumes.select(sphere_union)
+# `select` returns a lazy view: materialize it into a sub-mesh with `.to_mesh()`.
+inner_bubbles = volumes.select(sphere_union).to_mesh()
 interface = inner_bubbles.boundaries()
 cracked = volumes.crack(interface)
 ```
+
+
+```python
+# Named groups live in a dict-like mapping on the mesh:
+# assign any selection expression (or {etype: ids} dict) to tag elements.
+volumes.groups["bubbles"] = sphere_union
+print(len(volumes.groups["bubbles"]), "elements tagged in group 'bubbles'")
+```
+
+    105990 elements tagged in group 'bubbles'
+
+
+## Cracking and connected components
 
 
 ```python
@@ -73,7 +91,7 @@ cracked.boundaries().to_pyvista().plot(opacity=0.4)
 
 
 
-![png](example_bubbles_files/example_bubbles_8_0.png)
+![png](example_bubbles_files/example_bubbles_12_0.png)
 
 
 
@@ -96,7 +114,7 @@ pv.global_theme.color_cycler = None
 
 
 
-![png](example_bubbles_files/example_bubbles_10_0.png)
+![png](example_bubbles_files/example_bubbles_14_0.png)
 
 
 
@@ -104,11 +122,11 @@ pv.global_theme.color_cycler = None
 ```python
 clip1 = mf.sel.bbox([-np.inf] * 3, [np.inf, ymax / 3.0, np.inf])
 pl = pv.Plotter()
-pl.add_mesh(volumes.select(clip1 & ~sphere_union).to_pyvista())
+pl.add_mesh(volumes.select(clip1 & ~sphere_union).to_mesh().to_pyvista())
 pl.add_mesh(interface.to_pyvista(), opacity=0.4)
 pl.show()
 ```
 
 
 
-![png](example_bubbles_files/example_bubbles_11_0.png)
+![png](example_bubbles_files/example_bubbles_15_0.png)

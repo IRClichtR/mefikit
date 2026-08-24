@@ -23,7 +23,7 @@ volumes
 
 
 
-    <UMesh at 0x7474980e7750>
+    <UMesh at 0x7f41a0463ed0>
 
 
 
@@ -70,7 +70,9 @@ print(volumes)
                 ),
                 fields: {},
                 families: [0, 0, 0, 0, 0, 0], shape=[6], strides=[1], layout=CFcf (0xf), const ndim=1,
-                groups: {},
+                groups: ArcGroups(
+                    {},
+                ),
             },
         },
     }

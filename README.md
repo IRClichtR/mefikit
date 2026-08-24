@@ -42,7 +42,8 @@ For scientific developers, it offers:
 - Unified, ergonomic `UMesh` structure:
   - Supports **mixed element types** in the same mesh
   - Named **fields of doubles** over elements or nodes
-  - **Element families and groups** for flexible subdomain handling (WIP)
+  - **Dict-like `fields` / `groups` mappings**: selector-based reads and writes,
+    whole-domain or regional reductions, and named element groups
 - Python bindings for all high-level tools (`build_cmesh`, `sel`, `Field`,
   `transfer`, ...)
 
@@ -56,16 +57,17 @@ T = mf.Field("temperature")
 rhoCp = mf.Field("heat_capacity")
 V = mf.Field("measure")
 
-energy = rhoCp * T * V
+mesh.fields["energy"] = rhoCp * T * V  # compute & store as a new field
+E = mesh.eval(rhoCp * T * V)           # or materialize as NumPy dicts
 
-mesh.eval_update("energy", energy)     # compute & store in Rust as a new field
-E = mesh.eval(energy)                  # or materialize as NumPy
-
-energy = mf.Field("energy")            # reference the computed field
-submesh = mesh.select(energy > 1e6)    # field-based filtering
+hot = mesh.select(mf.Field("energy") > 1e6)  # lazy selection view
+hot.mean("energy")                           # reductions over the selection
+submesh = hot.to_mesh()                      # materialize when needed
 
 domain = mf.sel.bbox(p_min, p_max) | mf.sel.sphere(c, r)
-submesh = mesh.select(domain & energy > 1e6)  # field and space filtering
+zone = mesh.select(domain & (mf.Field("energy") > 1e6))  # field & space filtering
+mesh.groups["inlet"] = domain               # named groups via a dict-like mapping
+mesh.groups["inlet"].add(mf.sel.rect(q_min, q_max))      # grow it later
 ```
 
 - **Symbolic expressions**: build computations without touching raw arrays
