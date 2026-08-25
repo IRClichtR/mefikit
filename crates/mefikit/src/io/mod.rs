@@ -6,6 +6,7 @@ use crate::mesh::{UMesh, UMeshView};
 use std::path::Path;
 
 mod hdfvtk_io;
+mod med_io;
 mod serde_io;
 mod vtk_io;
 
@@ -45,6 +46,7 @@ pub fn write(path: &Path, mesh: UMeshView) -> Result<(), Box<dyn std::error::Err
         "yaml" | "yml" => serde_io::write_yaml(path, mesh),
         "vtk" | "vtu" => vtk_io::write(path, mesh),
         "vtkhdf" | "h5" | "hdf5" => hdfvtk_io::write(path, mesh),
+        "med" => med_io::write(path, &mesh),
         _ => Err(format!("Unsupported file extension: {path:?}").into()),
     }
 }
