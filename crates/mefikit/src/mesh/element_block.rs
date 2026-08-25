@@ -616,6 +616,14 @@ impl ElementBlock {
         }
     }
 
+    /// Replace the families array for this block (crate-internal).
+    pub(crate) fn set_families(
+        &mut self,
+        families: nd::ArrayBase<nd::OwnedArcRepr<usize>, nd::Ix1>,
+    ) {
+        self.families = families;
+    }
+
     /// Set groups from a map of group_name -> element_indices.
     /// Converts element indices to family IDs, then calls recompute_families
     /// to establish the correct partition.
