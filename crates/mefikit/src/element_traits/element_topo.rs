@@ -172,12 +172,14 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                     let mut conn = Vec::new();
                     let mut offsets = Vec::new();
                     let mut offset = 0;
-                    co.split_inclusive(|&e| e == usize::MAX).for_each(|a| {
-                        let len = a.len() - 1;
-                        offset += len;
+                    for chunk in co.split(|&e| e == usize::MAX) {
+                        if chunk.is_empty() {
+                            continue;
+                        }
+                        offset += chunk.len();
                         offsets.push(offset);
-                        conn.append(&mut a[..len].to_vec())
-                    });
+                        conn.extend_from_slice(chunk);
+                    }
                     let offsets = Array1::from_vec(offsets);
                     let conn = Array::from_vec(conn);
                     res.push((
@@ -285,7 +287,11 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                     "PGON with {n} nodes cannot be converted to TRI3 or QUAD4"
                 )),
             },
-            PHED => phed_to_regular(co),
+            PHED => {
+                let sub = self.subentities(Some(Dimension::D1));
+                let (_, face_conn) = &sub[0];
+                phed_to_regular(face_conn)
+            }
         }
     }
 
@@ -320,61 +326,29 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
 
 impl<'a, T> ElementTopo<'a> for T where T: ElementLike<'a> {}
 
-/// Converts a PHED connectivity (usize::MAX-separated faces) to a regular element.
+/// Converts a PHED element's face connectivity to a regular element.
 ///
-/// Uses `IndirectIndex` API to iterate over faces. Determines node ordering
-/// purely from face adjacency without assuming any particular face order.
-fn phed_to_regular(co: &[usize]) -> Result<(ElementType, Vec<usize>), String> {
+/// Takes the `Connectivity::Poly` from `subentities(D1)` and determines node
+/// ordering purely from face adjacency without assuming any particular face order.
+fn phed_to_regular(face_conn: &Connectivity) -> Result<(ElementType, Vec<usize>), String> {
     use rustc_hash::FxHashMap;
     use smallvec::SmallVec;
 
     use super::utils::SortedVecKey;
 
-    // Parse PHED connectivity into faces.
-    // Faces are separated by usize::MAX sentinels; the last face has no trailing sentinel.
-    let mut face_data = Vec::new();
-    let mut face_offsets = Vec::new();
-    let mut offset = 0usize;
-    for chunk in co.split(|&e| e == usize::MAX) {
-        if chunk.is_empty() {
-            continue;
-        }
-        offset += chunk.len();
-        face_offsets.push(offset);
-        face_data.extend_from_slice(chunk);
-    }
-
-    let faces = crate::mesh::IndirectIndexOwned {
-        data: ndarray::Array1::from_vec(face_data),
-        offsets: ndarray::Array1::from_vec(face_offsets),
-    };
-
-    let num_faces = faces.len();
+    let num_faces = face_conn.len();
     if num_faces == 0 {
         return Err("PHED has no faces".into());
     }
-    let nodes_per_face = faces[0].len();
+    let nodes_per_face = face_conn[0].len();
 
-    if !faces.iter().all(|f| f.len() == nodes_per_face) {
+    if !face_conn.iter().all(|f| f.len() == nodes_per_face) {
         return Err("PHED faces have inconsistent node counts".into());
-    }
-
-    // Collect unique nodes in first-appearance order.
-    let mut unique_nodes = Vec::new();
-    let mut seen = FxHashMap::default();
-    for face in faces.iter() {
-        for &n in face {
-            use std::collections::hash_map::Entry;
-            if let Entry::Vacant(e) = seen.entry(n) {
-                e.insert(unique_nodes.len());
-                unique_nodes.push(n);
-            }
-        }
     }
 
     // Build edge→face map. Key: sorted edge, Value: list of face indices.
     let mut edge_faces: FxHashMap<SortedVecKey, Vec<usize>> = FxHashMap::default();
-    for (fi, face) in faces.iter().enumerate() {
+    for (fi, face) in face_conn.iter().enumerate() {
         let n = face.len();
         for j in 0..n {
             let key = SortedVecKey::new(SmallVec::from_vec(vec![face[j], face[(j + 1) % n]]));
@@ -394,8 +368,8 @@ fn phed_to_regular(co: &[usize]) -> Result<(ElementType, Vec<usize>), String> {
     }
 
     match (num_faces, nodes_per_face) {
-        (4, 3) => from_phed_tet4(&faces),
-        (6, 4) => from_phed_hex8(&faces, &edge_faces),
+        (4, 3) => from_phed_tet4(face_conn),
+        (6, 4) => from_phed_hex8(face_conn, &edge_faces),
         _ => Err(format!(
             "PHED with {num_faces} faces of {nodes_per_face} nodes cannot be converted to TET4 or HEX8"
         )),
@@ -405,19 +379,16 @@ fn phed_to_regular(co: &[usize]) -> Result<(ElementType, Vec<usize>), String> {
 /// Reconstruct TET4 node ordering from 4 triangular faces.
 ///
 /// Algorithm: pick face F0 = [a, b, c]. The 4th node d is the one node not in F0.
-/// Found by scanning any other face for a node not in {a, b, c}.
-fn from_phed_tet4(
-    faces: &crate::mesh::IndirectIndexOwned<usize>,
-) -> Result<(ElementType, Vec<usize>), String> {
+fn from_phed_tet4(face_conn: &Connectivity) -> Result<(ElementType, Vec<usize>), String> {
     use ElementType::TET4;
 
-    let f0 = &faces[0];
+    let f0 = &face_conn[0];
     let a = f0[0];
     let b = f0[1];
     let c = f0[2];
 
     // The 4th node is any node not in {a, b, c}.
-    let d = faces
+    let d = face_conn
         .iter()
         .skip(1)
         .find_map(|face| face.iter().find(|&&n| n != a && n != b && n != c).copied())
@@ -436,7 +407,7 @@ fn from_phed_tet4(
 ///    which bottom node, giving [a→e, b→f, c→g, d→h].
 /// 5. Return [a, b, c, d, e, f, g, h].
 fn from_phed_hex8(
-    faces: &crate::mesh::IndirectIndexOwned<usize>,
+    face_conn: &Connectivity,
     edge_faces: &rustc_hash::FxHashMap<super::utils::SortedVecKey, Vec<usize>>,
 ) -> Result<(ElementType, Vec<usize>), String> {
     use smallvec::SmallVec;
@@ -444,12 +415,12 @@ fn from_phed_hex8(
     use super::utils::SortedVecKey;
     use ElementType::HEX8;
 
-    let f0 = &faces[0];
+    let f0 = &face_conn[0];
     let bottom: [usize; 4] = [f0[0], f0[1], f0[2], f0[3]];
     let bottom_set: std::collections::HashSet<usize> = bottom.iter().copied().collect();
 
     // Find the face opposite to F0: shares zero nodes with F0.
-    let opposite_idx = faces
+    let opposite_idx = face_conn
         .iter()
         .enumerate()
         .find(|&(fi, face)| {
@@ -483,11 +454,10 @@ fn from_phed_hex8(
                 format!("Could not find side face for edge [{a},{b}] in HEX8 reconstruction")
             })?;
 
-        let side = &faces[side_idx];
+        let side = &face_conn[side_idx];
         let n = side.len();
 
         // In the side face, find the node adjacent to `a` that is NOT a bottom node.
-        // This is the top node "above" a.
         use std::collections::hash_map::Entry;
         if let Entry::Vacant(e) = top_of.entry(a) {
             let pos_a = side.iter().position(|&x| x == a).unwrap();
