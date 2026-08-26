@@ -53,9 +53,9 @@ pub fn write(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = hdf5_metno::File::create(path)?;
 
-    file.create_group("CHA")?;
     write_general_info(&file)?;
     write_mesh(&file, mesh)?;
+    write_fields(&file, mesh)?;
 
     Ok(())
 }
@@ -128,7 +128,7 @@ fn write_mesh(file: &File, mesh: &UMeshView) -> hdf5_metno::Result<()> {
         write_block(&mai, et, &block.view())?;
     }
 
-    write_families(file)?;
+    write_families(file, mesh)?;
 
     Ok(())
 }
@@ -195,6 +195,24 @@ fn reorder_connectivity(conn: &ArrayView2<usize>, permutation: Option<&[usize]>)
     out
 }
 
+fn write_fam_dataset(
+    parent: &Group,
+    families: ndarray::ArrayView1<'_, usize>,
+) -> hdf5_metno::Result<()> {
+    if families.iter().all(|&f| f == 0) {
+        return Ok(());
+    }
+    let fam_data: Vec<i64> = families.iter().map(|&f| f as i64).collect();
+    let n = fam_data.len() as i64;
+    let ds = parent
+        .new_dataset_builder()
+        .with_data(&fam_data)
+        .create("FAM")?;
+    write_scalar_attr(&ds, "CGT", 1i64)?;
+    write_scalar_attr(&ds, "NBR", n)?;
+    Ok(())
+}
+
 fn write_regular(
     mai: &Group,
     element_type: ElementType,
@@ -227,16 +245,222 @@ fn write_regular(
     write_scalar_attr(&nod, "CGT", 1i64)?;
     write_scalar_attr(&nod, "NBR", med_conn.nrows() as i64)?;
 
+    write_fam_dataset(&group, regular.families())?;
+
     Ok(())
 }
 
-fn write_families(file: &File) -> hdf5_metno::Result<()> {
+fn write_families(file: &File, mesh: &UMeshView) -> hdf5_metno::Result<()> {
     let fas = file.create_group("FAS")?;
     let families = fas.create_group("mesh")?;
 
     let family_zero = families.create_group("FAMILLE_ZERO")?;
     write_scalar_attr(&family_zero, "NUM", 0i64)?;
 
+    // Collect the reverse map: family_id → set of group names, across all blocks.
+    let mut fam_to_names: BTreeMap<usize, BTreeMap<String, ()>> = BTreeMap::new();
+
+    for (_et, block) in mesh.blocks() {
+        for (group_name, family_ids) in block.groups() {
+            for &fid in family_ids {
+                if fid == 0 {
+                    continue;
+                }
+                fam_to_names
+                    .entry(fid)
+                    .or_default()
+                    .insert(group_name.clone(), ());
+            }
+        }
+    }
+
+    if fam_to_names.is_empty() {
+        return Ok(());
+    }
+
+    let elem = families.create_group("ELEME")?;
+
+    for (&fid, names_map) in &fam_to_names {
+        let names: Vec<&str> = names_map.keys().map(|s| s.as_str()).collect();
+        let gname = format!("FAM_{fid}_");
+        let fam_group = elem.create_group(&gname)?;
+        write_scalar_attr(&fam_group, "NUM", fid as i64)?;
+
+        if names.is_empty() {
+            continue;
+        }
+
+        let gro = fam_group.create_group("GRO")?;
+        write_scalar_attr(&gro, "NBR", names.len() as i64)?;
+
+        // NOM: (n_groups, 80) array of signed i8, space-padded (meshio/MED convention).
+        let n_groups = names.len();
+        let mut buf2d = Array2::<i8>::from_elem((n_groups, 80), 0x20);
+        for (i, name) in names.iter().enumerate() {
+            let name_bytes = name.as_bytes();
+            let len = name_bytes.len().min(80);
+            for (j, &b) in name_bytes[..len].iter().enumerate() {
+                buf2d[[i, j]] = b as i8;
+            }
+        }
+
+        let nom_ds = gro.new_dataset_builder().with_data(&buf2d).create("NOM")?;
+
+        let _ = nom_ds;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Field I/O
+// ---------------------------------------------------------------------------
+
+/// MED fixed-width for component names (16 chars each).
+const MED_NOM_LEN: usize = 16;
+
+/// Write element-centered fields into the CHA group.
+///
+/// Layout per field:
+/// ```text
+/// CHA/<field_name>/
+///   (attrs: MAI="mesh", TYP=6, NCO=<n_comp>, NOM=<16-char padded names>, UNI="", UNT="")
+///   0000000000000000000100000000000000000001/      ← static step: NDT=1, NOR=1
+///     MAI.<MED_TYPE>/
+///       (attrs: GAU="", PFL="MED_NO_PROFILE_INTERNAL")
+///       MED_NO_PROFILE_INTERNAL/
+///         (attrs: NBR=<n_cells>, NGA=1, GAU="")
+///         CO                                        ← f64, Fortran-order flattened
+/// ```
+fn write_fields(file: &File, mesh: &UMeshView) -> Result<(), Box<dyn std::error::Error>> {
+    // Collect per-field-name: { ElementType → (ArrayViewD<f64>, n_cells) }.
+    // We iterate blocks to discover all field names and their per-type data.
+    let mut field_map: BTreeMap<String, BTreeMap<ElementType, (usize, Vec<f64>)>> = BTreeMap::new();
+
+    for (et, block) in mesh.blocks() {
+        for (name, arr) in &block.fields {
+            let n_cells = block.len();
+            // Flatten to contiguous f64 vec.
+            let data: Vec<f64> = arr.as_slice().unwrap().to_vec();
+            field_map
+                .entry(name.clone())
+                .or_default()
+                .insert(*et, (n_cells, data));
+        }
+    }
+
+    if field_map.is_empty() {
+        return Ok(());
+    }
+
+    let cha = file.create_group("CHA")?;
+    let step_key = "0000000000000000000100000000000000000001";
+
+    for (field_name, type_map) in &field_map {
+        // Infer n_components from the first type entry.
+        let (_first_et, &(n_first_cells, ref first_data)) = type_map.iter().next().unwrap();
+        // Infer n_components from shape: if data.len() / n_cells == 1 → scalar.
+        let n_components = first_data.len().checked_div(n_first_cells).unwrap_or(1);
+
+        let field_grp = cha.create_group(field_name)?;
+
+        // Attributes on the field group.
+        write_scalar_attr(&field_grp, "TYP", 6i64)?; // MED_FLOAT64
+        write_scalar_attr(&field_grp, "NCO", n_components as i64)?;
+        write_fixed_bytes_attr::<8>(&field_grp, "MAI", b"mesh")?;
+        write_fixed_bytes_attr::<8>(&field_grp, "UNI", b"")?;
+        write_fixed_bytes_attr::<8>(&field_grp, "UNT", b"")?;
+
+        // Component names: V1, V2, ... or use the single name for scalars.
+        let nom_bytes = build_field_nom(field_name, n_components);
+        let nom_len = nom_bytes.len();
+        // Write NOM as a fixed-length byte attribute. We use a large-enough size.
+        // For single-component fields the NOM is just the field name (16 chars).
+        // For multi-component it's n_components * 16 chars.
+        write_field_nom_attr(&field_grp, "NOM", &nom_bytes, nom_len)?;
+
+        // Time-step group.
+        let step_grp = field_grp.create_group(step_key)?;
+        write_scalar_attr(&step_grp, "NDT", 1i64)?;
+        write_scalar_attr(&step_grp, "NOR", 1i64)?;
+        write_scalar_attr(&step_grp, "PDT", 0.0f64)?;
+        write_scalar_attr(&step_grp, "RDT", -1i64)?;
+        write_scalar_attr(&step_grp, "ROR", -1i64)?;
+
+        // One MAI.<type> subgroup per element type.
+        for (&et, &(n_cells, ref data)) in type_map {
+            let med_type = et.med_name();
+            let mai_type_name = format!("MAI.{med_type}");
+            let mai_type_grp = step_grp.create_group(&mai_type_name)?;
+
+            write_fixed_bytes_attr::<1>(&mai_type_grp, "GAU", b"")?;
+            write_fixed_bytes_attr::<23>(&mai_type_grp, "PFL", b"MED_NO_PROFILE_INTERNAL")?;
+
+            let prof_grp = mai_type_grp.create_group("MED_NO_PROFILE_INTERNAL")?;
+            write_scalar_attr(&prof_grp, "NBR", n_cells as i64)?;
+            write_scalar_attr(&prof_grp, "NGA", 1i64)?;
+            write_fixed_bytes_attr::<1>(&prof_grp, "GAU", b"")?;
+
+            // CO dataset: shape (n_cells, n_components) stored in Fortran (column-major) order.
+            let co_data: Vec<f64> = if n_components == 1 {
+                data.clone()
+            } else {
+                // data is (n_cells, n_components) in C order → transpose for Fortran order.
+                let arr = Array2::from_shape_vec((n_cells, n_components), data.clone())
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+                let t = arr.reversed_axes();
+                t.iter().copied().collect()
+            };
+
+            let co_ds = prof_grp
+                .new_dataset_builder()
+                .with_data(&co_data)
+                .create("CO")?;
+            write_scalar_attr(&co_ds, "CGT", 1i64)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Build NOM bytes for a field. For scalar (n_comp=1) the name is field_name
+/// padded to 16 chars. For multi-component, each component gets V1, V2, ... padded.
+fn build_field_nom(field_name: &str, n_components: usize) -> Vec<u8> {
+    if n_components == 1 {
+        let mut buf = vec![b' '; MED_NOM_LEN];
+        let name_bytes = field_name.as_bytes();
+        let len = name_bytes.len().min(MED_NOM_LEN);
+        buf[..len].copy_from_slice(&name_bytes[..len]);
+        buf
+    } else {
+        let mut buf = Vec::with_capacity(n_components * MED_NOM_LEN);
+        for c in 1..=n_components {
+            let label = format!("V{c}");
+            let label_bytes = label.as_bytes();
+            let mut slot = vec![b' '; MED_NOM_LEN];
+            let len = label_bytes.len().min(MED_NOM_LEN);
+            slot[..len].copy_from_slice(&label_bytes[..len]);
+            buf.extend_from_slice(&slot);
+        }
+        buf
+    }
+}
+
+/// Write NOM as a fixed-length byte attribute. The hdf5-metno API requires a
+/// concrete `FixedAscii<N>` size at compile time, so we fall back to writing
+/// an i8 array dataset when the size isn't known at compile time.
+fn write_field_nom_attr(
+    grp: &Group,
+    name: &str,
+    nom_bytes: &[u8],
+    _total_len: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // MED convention: NOM is stored as an array of i8 (signed bytes).
+    let i8_data: Vec<i8> = nom_bytes.iter().map(|&b| b as i8).collect();
+    let n_slots = nom_bytes.len() / MED_NOM_LEN;
+    let arr = Array2::from_shape_vec((n_slots, MED_NOM_LEN), i8_data)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    grp.new_dataset_builder().with_data(&arr).create(name)?;
     Ok(())
 }
 
@@ -306,6 +530,8 @@ fn write_polygon(mai: &Group, poly: &ElementBlockView) -> hdf5_metno::Result<()>
     write_scalar_attr(&inn_ds, "CGT", 1i64)?;
     write_scalar_attr(&inn_ds, "NBR", inn.len() as i64)?;
 
+    write_fam_dataset(&group, poly.families())?;
+
     Ok(())
 }
 
@@ -361,6 +587,8 @@ fn write_polyhedron(mai: &Group, block: &ElementBlockView) -> hdf5_metno::Result
     let ifn_ds = group.new_dataset_builder().with_data(&ifn).create("IFN")?;
     write_scalar_attr(&ifn_ds, "CGT", 1i64)?;
     write_scalar_attr(&ifn_ds, "NBR", ifn.len() as i64)?;
+
+    write_fam_dataset(&group, block.families())?;
 
     Ok(())
 }
@@ -721,14 +949,106 @@ pub fn read(path: impl AsRef<Path>) -> Result<UMesh, Box<dyn std::error::Error>>
         }
     }
 
+    read_fields(&file, &mut mesh)?;
+
     Ok(mesh)
+}
+
+/// Read element-centered fields from the CHA group into the mesh.
+fn read_fields(file: &File, mesh: &mut UMesh) -> Result<(), Box<dyn std::error::Error>> {
+    let cha = match file.group("CHA") {
+        Ok(g) => g,
+        Err(_) => return Ok(()),
+    };
+
+    for field_name in cha.member_names().unwrap_or_default() {
+        let field_grp = match cha.group(&field_name) {
+            Ok(g) => g,
+            Err(_) => continue,
+        };
+
+        let n_co = field_grp
+            .attr("NCO")
+            .ok()
+            .and_then(|a| a.read_scalar::<i64>().ok())
+            .unwrap_or(1) as usize;
+
+        // Find the first time-step group (any child that is a group).
+        let step_grp = match field_grp
+            .member_names()
+            .ok()
+            .and_then(|names| names.iter().find(|n| field_grp.group(n).is_ok()).cloned())
+            .and_then(|name| field_grp.group(&name).ok())
+        {
+            Some(g) => g,
+            None => continue,
+        };
+
+        // Iterate MAI.<type> support groups.
+        for member in step_grp.member_names().unwrap_or_default() {
+            if !member.starts_with("MAI.") {
+                continue;
+            }
+
+            let med_type = &member[4..];
+            let et = match med_name_to_element_type(med_type) {
+                Some(et) => et,
+                None => continue,
+            };
+
+            let mai_grp = match step_grp.group(&member) {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+
+            let prof = match mai_grp.group("MED_NO_PROFILE_INTERNAL") {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+
+            let n_cells = prof
+                .attr("NBR")
+                .ok()
+                .and_then(|a| a.read_scalar::<i64>().ok())
+                .unwrap_or(0) as usize;
+
+            let co: Array1<f64> = match prof.dataset("CO") {
+                Ok(ds) => ds.read().unwrap_or_default(),
+                Err(_) => continue,
+            };
+
+            // MED stores (n_cells, n_components) in Fortran (column-major) order.
+            // For scalar (n_co=1), CO is a flat 1D array — no reshape needed.
+            // For vector, CO is column-major flattened: reshape as (n_comp, n_cells)
+            // then transpose → (n_cells, n_comp).
+            let arr = if n_co == 1 {
+                co.into_dyn()
+            } else {
+                let raw = Array2::from_shape_vec((n_co, n_cells), co.to_vec())
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+                raw.reversed_axes()
+                    .as_standard_layout()
+                    .to_owned()
+                    .into_dyn()
+            };
+
+            // Set the field on the block.
+            if let Some(block) = mesh.element_blocks.get_mut(&et) {
+                block.fields.insert(field_name.clone(), arr.into_shared());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh::ElementIds;
     use crate::mesh::ElementLike;
     use crate::mesh_examples as me;
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     fn assert_mesh_eq(a: &UMesh, b: &UMesh) {
@@ -746,6 +1066,64 @@ mod tests {
             assert_eq!(et1, et2);
             assert_eq!(c1, c2);
         }
+
+        // Compare family ID multisets per element type. The family ordering may
+        // differ when blocks merge (e.g. polygon3+polygon5 → single PGON on
+        // write), but the multiset of family IDs per type must match.
+        let fams_a = collect_families_by_type(a);
+        let fams_b = collect_families_by_type(b);
+        let mut types_a: Vec<_> = fams_a.keys().collect();
+        let mut types_b: Vec<_> = fams_b.keys().collect();
+        types_a.sort();
+        types_b.sort();
+        assert_eq!(types_a, types_b, "element types differ between meshes");
+        for (et, fa) in &fams_a {
+            let fb = fams_b.get(et).expect("missing block type in b");
+            let mut sa = fa.clone();
+            let mut sb = fb.clone();
+            sa.sort();
+            sb.sort();
+            assert_eq!(sa, sb, "family ID multisets differ for {et:?}");
+        }
+
+        // Compare groups per element type (group→family-id-sets).
+        let groups_a = collect_groups_by_type(a);
+        let groups_b = collect_groups_by_type(b);
+        let mut gtypes_a: Vec<_> = groups_a.keys().collect();
+        let mut gtypes_b: Vec<_> = groups_b.keys().collect();
+        gtypes_a.sort();
+        gtypes_b.sort();
+        assert_eq!(gtypes_a, gtypes_b, "element types with groups differ");
+        for (et, ga) in &groups_a {
+            let gb = groups_b.get(et).expect("missing block type in b");
+            assert_eq!(ga, gb, "groups differ for {et:?}");
+        }
+    }
+
+    /// Collect families per element type (concatenated across blocks of the same type).
+    fn collect_families_by_type(mesh: &UMesh) -> BTreeMap<ElementType, Vec<usize>> {
+        let mut result: BTreeMap<ElementType, Vec<usize>> = BTreeMap::new();
+        for (et, block) in mesh.blocks() {
+            result
+                .entry(*et)
+                .or_default()
+                .extend(block.families().iter());
+        }
+        result
+    }
+
+    /// Collect groups per element type (merged across blocks of the same type).
+    fn collect_groups_by_type(
+        mesh: &UMesh,
+    ) -> BTreeMap<ElementType, BTreeMap<String, BTreeSet<usize>>> {
+        let mut result: BTreeMap<ElementType, BTreeMap<String, BTreeSet<usize>>> = BTreeMap::new();
+        for (et, block) in mesh.blocks() {
+            let entry = result.entry(*et).or_default();
+            for (name, fids) in block.groups() {
+                entry.entry(name.clone()).or_default().extend(fids);
+            }
+        }
+        result
     }
 
     #[test]
@@ -820,5 +1198,155 @@ mod tests {
         let mesh2 = read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert_mesh_eq(&mesh, &mesh2);
+    }
+
+    #[test]
+    fn test_roundtrip_med_groups() {
+        let path = PathBuf::from("test_roundtrip_med_groups.med");
+        let mesh = me::make_imesh_3d(2);
+        let mut mesh = mesh;
+
+        let mut wall_ids = ElementIds::new();
+        wall_ids.add_block(ElementType::TET4, vec![0, 1]);
+        mesh.add_to_group("wall", &wall_ids);
+
+        let mut inlet_ids = ElementIds::new();
+        inlet_ids.add_block(ElementType::TET4, vec![2]);
+        mesh.add_to_group("inlet", &inlet_ids);
+
+        write(&path, &mesh.view()).unwrap();
+        let mesh2 = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_mesh_eq(&mesh, &mesh2);
+    }
+
+    #[test]
+    fn test_roundtrip_med_groups_overlapping() {
+        let path = PathBuf::from("test_roundtrip_med_groups_overlapping.med");
+        let mesh = me::make_imesh_3d(2);
+        let mut mesh = mesh;
+
+        let mut ids1 = ElementIds::new();
+        ids1.add_block(ElementType::TET4, vec![0, 1, 2]);
+        mesh.add_to_group("region_a", &ids1);
+
+        let mut ids2 = ElementIds::new();
+        ids2.add_block(ElementType::TET4, vec![2, 3, 4]);
+        mesh.add_to_group("region_b", &ids2);
+
+        write(&path, &mesh.view()).unwrap();
+        let mesh2 = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_mesh_eq(&mesh, &mesh2);
+    }
+
+    #[test]
+    fn test_roundtrip_field_scalar() {
+        let path = PathBuf::from("test_roundtrip_field_scalar.med");
+        let mut mesh = me::make_imesh_3d(2);
+        let n_hex = mesh.block(ElementType::HEX8).unwrap().len();
+
+        let vals: Vec<f64> = (0..n_hex).map(|i| i as f64 * 1.5).collect();
+        let arr = Array1::from_vec(vals).into_dyn().into_shared();
+        let field_map: BTreeMap<_, _> = BTreeMap::from([(ElementType::HEX8, arr)]);
+        mesh.update_field("temperature", crate::mesh::FieldArcD::new(field_map));
+
+        write(&path, &mesh.view()).unwrap();
+        let mesh2 = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        let f1 = mesh.field("temperature", None).unwrap();
+        let f2 = mesh2.field("temperature", None).unwrap();
+        assert_eq!(
+            f1.0.keys().collect::<Vec<_>>(),
+            f2.0.keys().collect::<Vec<_>>()
+        );
+        for (et, v1) in &f1.0 {
+            let v2 = f2.0.get(et).unwrap();
+            assert_eq!(v1, v2, "field values differ for {et:?}");
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_field_vector() {
+        let path = PathBuf::from("test_roundtrip_field_vector.med");
+        let mut mesh = me::make_imesh_3d(2);
+        let n_hex = mesh.block(ElementType::HEX8).unwrap().len();
+
+        let mut data = Array2::zeros((n_hex, 3));
+        for i in 0..n_hex {
+            data[[i, 0]] = i as f64;
+            data[[i, 1]] = i as f64 * 2.0;
+            data[[i, 2]] = i as f64 * 3.0;
+        }
+        let arr = data.into_dyn().into_shared();
+        let field_map: BTreeMap<_, _> = BTreeMap::from([(ElementType::HEX8, arr)]);
+        mesh.update_field("velocity", crate::mesh::FieldArcD::new(field_map));
+
+        write(&path, &mesh.view()).unwrap();
+        let mesh2 = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        let f1 = mesh.field("velocity", None).unwrap();
+        let f2 = mesh2.field("velocity", None).unwrap();
+        assert_eq!(
+            f1.0.keys().collect::<Vec<_>>(),
+            f2.0.keys().collect::<Vec<_>>()
+        );
+        for (et, v1) in &f1.0 {
+            let v2 = f2.0.get(et).unwrap();
+            assert_eq!(v1, v2, "field values differ for {et:?}");
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_field_multi_component() {
+        let path = PathBuf::from("test_roundtrip_field_multi.med");
+        let mut mesh = me::make_imesh_3d(2);
+        let n_hex = mesh.block(ElementType::HEX8).unwrap().len();
+
+        mesh.update_field(
+            "temperature",
+            crate::mesh::FieldArcD::new(BTreeMap::from([(
+                ElementType::HEX8,
+                Array1::from_vec((0..n_hex).map(|i| i as f64 * 0.1).collect())
+                    .into_dyn()
+                    .into_shared(),
+            )])),
+        );
+
+        let mut vel = Array2::zeros((n_hex, 3));
+        for i in 0..n_hex {
+            vel[[i, 0]] = i as f64;
+            vel[[i, 1]] = i as f64 * 2.0;
+            vel[[i, 2]] = i as f64 * 3.0;
+        }
+        mesh.update_field(
+            "velocity",
+            crate::mesh::FieldArcD::new(BTreeMap::from([(
+                ElementType::HEX8,
+                vel.into_dyn().into_shared(),
+            )])),
+        );
+
+        write(&path, &mesh.view()).unwrap();
+        let mesh2 = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        // Verify scalar
+        let f1 = mesh.field("temperature", None).unwrap();
+        let f2 = mesh2.field("temperature", None).unwrap();
+        for (et, v1) in &f1.0 {
+            let v2 = f2.0.get(et).unwrap();
+            assert_eq!(v1, v2, "temperature differs for {et:?}");
+        }
+
+        // Verify vector
+        let f1 = mesh.field("velocity", None).unwrap();
+        let f2 = mesh2.field("velocity", None).unwrap();
+        for (et, v1) in &f1.0 {
+            let v2 = f2.0.get(et).unwrap();
+            assert_eq!(v1, v2, "velocity differs for {et:?}");
+        }
     }
 }

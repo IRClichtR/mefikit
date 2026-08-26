@@ -330,12 +330,12 @@ impl ElementBlock {
         connectivity: nd::ArcArray1<usize>,
         offsets: nd::ArcArray1<usize>,
     ) -> Self {
-        let conn_len = connectivity.len();
+        let n_elements = offsets.len();
         Self {
             cell_type,
             connectivity: Connectivity::new_poly(connectivity, offsets),
             fields: BTreeMap::new(),
-            families: nd::ArcArray1::from(vec![0; conn_len]),
+            families: nd::ArcArray1::from(vec![0; n_elements]),
             groups: ArcGroups::new(),
         }
     }
