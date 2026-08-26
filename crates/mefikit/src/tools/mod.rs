@@ -31,6 +31,8 @@ pub mod measure;
 pub mod neighbours;
 /// Boolean-like overlay operations on 2D meshes.
 pub mod overlay;
+/// Convert elements to their poly equivalents (polygon/polyhedron/spline).
+pub mod polyze;
 /// Element and node selection utilities.
 pub mod selector;
 /// Node snapping to merge nearby nodes.
@@ -49,6 +51,7 @@ pub use grid::*;
 pub use measure::*;
 pub use neighbours::*;
 pub use overlay::*;
+pub use polyze::*;
 pub use selector::*;
 pub use snap::*;
 pub use split_cells::*;

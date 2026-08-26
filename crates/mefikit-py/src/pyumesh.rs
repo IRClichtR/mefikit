@@ -282,6 +282,11 @@ impl PyUMesh {
         new_mesh.into()
     }
 
+    fn polyze(&self) -> Self {
+        let new_mesh = mf::polyze(&self.inner.view());
+        new_mesh.into()
+    }
+
     fn num_elements(&self) -> usize {
         self.inner.num_elements()
     }
