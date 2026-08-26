@@ -602,11 +602,11 @@ mod tests {
     fn as_polyhedron_maps_global_to_local_faces() {
         let expected_faces = [
             [0, 1, 2, 3],
-            [0, 3, 7, 4],
-            [0, 4, 5, 1],
-            [1, 5, 6, 2],
-            [2, 6, 7, 3],
-            [4, 7, 6, 5],
+            [4, 5, 6, 7],
+            [0, 1, 5, 4],
+            [1, 2, 6, 5],
+            [2, 3, 7, 6],
+            [3, 0, 4, 7],
         ];
         let mesh = crate::mesh_examples::make_imesh_3d(2);
         for elem in mesh.elements() {

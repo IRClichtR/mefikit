@@ -168,13 +168,13 @@ fn write_nodes(timestep: &Group, coords: &ArrayView2<f64>) -> hdf5_metno::Result
 impl ElementType {
     fn med_permutation(self) -> Option<&'static [usize]> {
         match self {
+            // VTK→MED: swap nodes 2↔3 (self-inverse, used on both read and write paths).
             ElementType::TET4 => Some(&[0, 1, 3, 2]),
-
-            // ElementType::HEX8 => Some(&[4, 5, 6, 7, 0, 1, 2, 3]),
-            ElementType::HEX8 => Some(&[0, 1, 2, 3, 4, 5, 6, 7]),
-
             ElementType::TET10 => Some(&[0, 1, 3, 2, 4, 8, 7, 6, 5, 9]),
-
+            // VTK→MED: MED node 0 is top-left-front, VTK node 0 is bottom-left-front.
+            // Maps VTK bottom(0,1,2,3) → MED bottom(4,5,6,7), VTK top(4,5,6,7) → MED top(0,1,2,3).
+            // Self-inverse.
+            ElementType::HEX8 => Some(&[4, 5, 6, 7, 0, 1, 2, 3]),
             _ => None,
         }
     }

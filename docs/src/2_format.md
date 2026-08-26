@@ -1,8 +1,10 @@
 # Element Conventions
 
 This chapter defines the node ordering and face orientation conventions used
-throughout `mefikit`. These conventions follow the **MEDFile** convention,
-which differs from VTK in face definitions for hexahedra.
+throughout `mefikit`. These conventions follow the **VTK** convention for
+element node ordering and face definitions.
+
+**Note:** TET10 uses MEDFile mid-side node numbering (deferred migration).
 
 ## Element types
 
@@ -99,10 +101,8 @@ Nodes 0–3 are the four vertices, numbered counter-clockwise:
 
 ### TET4 — Tetrahedron
 
-**TODO**: TET4 is broken for now, do not look at this section.
-
 Nodes 0–3 are the four vertices. The tetrahedron is defined by its four
-triangular faces, each opposite one vertex:
+triangular faces (VTK convention):
 
 ```
           3
@@ -120,12 +120,12 @@ triangular faces, each opposite one vertex:
           0
 ```
 
-| Face | Nodes          | Opposite | Description              |
-|------|----------------|----------|--------------------------|
-| 0    | [0, 1, 2]      | 3        | Base                     |
-| 1    | [1, 2, 3]      | 0        | Face opposite node 0     |
-| 2    | [2, 3, 0]      | 1        | Face opposite node 1     |
-| 3    | [3, 0, 1]      | 2        | Face opposite node 2     |
+| Face | Nodes          | Description              |
+|------|----------------|--------------------------|
+| 0    | [0, 1, 3]      | Opposite node 2          |
+| 1    | [1, 2, 3]      | Opposite node 0          |
+| 2    | [2, 0, 3]      | Opposite node 1          |
+| 3    | [0, 2, 1]      | Base (opposite node 3)   |
 
 Each face lists the three nodes that do **not** include the opposite vertex,
 in CCW order when viewed from outside the element.
@@ -136,19 +136,19 @@ For **TET10**, the vertex convention is: nodes 0–3 vertices, mid-side nodes
 ### HEX8 — Hexahedron
 
 Nodes 0–7 are the eight vertices of a unit cube, numbered following the
-**MEDFile convention** (not VTK):
+**VTK** convention:
 
 ```
-        3---------2
+        7---------6
        /|        /|
       / |       / |
      /  |      /  |
-    0---------1   |
-    |   7-----|---6
+    4---------5   |
+    |   3-----|---2
     |  /      |  /
     | /       | /
     |/        |/
-    4---------5
+    0---------1
 ```
 
 Bottom face: nodes 0, 1, 2, 3 (CCW viewed from below).
@@ -157,18 +157,21 @@ Node 4 is directly above node 0, node 5 above node 1, etc.
 
 | Face | Nodes            | Description                  |
 |------|------------------|------------------------------|
-| 0    | [0, 1, 2, 3]     | Top (z = 1)              |
-| 1    | [0, 3, 7, 4]     | Left (x = 0)                |
-| 2    | [0, 4, 5, 1]     | Front (y = 0)               |
-| 3    | [1, 5, 6, 2]     | Right (x = 1)               |
-| 4    | [2, 6, 7, 3]     | Back (y = 1)                |
-| 5    | [4, 7, 6, 5]     | Bottom (z = 0)                 |
+| 0    | [0, 1, 2, 3]     | Bottom (z = 0)           |
+| 1    | [4, 5, 6, 7]     | Top (z = 1)                  |
+| 2    | [0, 1, 5, 4]     | Front (y = 0)               |
+| 3    | [1, 2, 6, 5]     | Right (x = 1)               |
+| 4    | [2, 3, 7, 6]     | Back (y = 1)                |
+| 5    | [3, 0, 4, 7]     | Left (x = 0)                |
 
 All faces are wound CCW when viewed from outside the element.
 
-**Differences with VTK:** VTK HEX8 defines faces as:
-[VTK bottom, VTK top, VTK front, VTK back, VTK right, VTK left] with different
-node orderings. Do not mix VTK and MEDFile face definitions.
+**Differences with MEDFile:** MEDFile HEX8 has a different node numbering:
+MED node 0 is top-left-front, while VTK node 0 is bottom-left-front. The
+MED→VTK node permutation is `[4,5,6,7,0,1,2,3]` (self-inverse). Face ordering
+also differs: MED uses `[top, left, front, right, back, bottom]` while VTK
+uses `[bottom, top, front, right, back, left]`. Do not mix VTK and MEDFile
+conventions.
 
 For **HEX21**, the vertex convention is: nodes 0–7 vertices, mid-side nodes
 8 (edge 01), 9 (edge 12), 10 (edge 23), 11 (edge 30), 12 (edge 45),

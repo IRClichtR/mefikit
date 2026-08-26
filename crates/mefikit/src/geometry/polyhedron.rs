@@ -258,14 +258,14 @@ fn triple_product(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
     a[0] * cross[0] + a[1] * cross[1] + a[2] * cross[2]
 }
 
-/// The six quadrilateral faces of a HEX8 in `subentities(D1)` connectivity order.
+/// The six quadrilateral faces of a HEX8 in `subentities(D1)` connectivity order (VTK convention).
 const HEX8_FACES: [[usize; 4]; 6] = [
     [0, 1, 2, 3],
-    [0, 3, 7, 4],
-    [0, 4, 5, 1],
-    [1, 5, 6, 2],
-    [2, 6, 7, 3],
-    [4, 7, 6, 5],
+    [4, 5, 6, 7],
+    [0, 1, 5, 4],
+    [1, 2, 6, 5],
+    [2, 3, 7, 6],
+    [3, 0, 4, 7],
 ];
 
 /// Computes the volume of a tetrahedron.
@@ -583,11 +583,11 @@ mod tests {
             ],
             [
                 vec![0, 1, 2, 3],
-                vec![0, 3, 7, 4],
-                vec![0, 4, 5, 1],
-                vec![1, 5, 6, 2],
-                vec![2, 6, 7, 3],
-                vec![4, 7, 6, 5],
+                vec![4, 5, 6, 7],
+                vec![0, 1, 5, 4],
+                vec![1, 2, 6, 5],
+                vec![2, 3, 7, 6],
+                vec![3, 0, 4, 7],
             ],
         )
     }
@@ -600,7 +600,7 @@ mod tests {
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            [vec![0, 1, 2], vec![1, 2, 3], vec![2, 3, 0], vec![3, 0, 1]],
+            [vec![0, 1, 3], vec![1, 2, 3], vec![2, 0, 3], vec![0, 2, 1]],
         )
     }
 
@@ -721,11 +721,11 @@ mod tests {
         let points = unit_cube().iter().copied().collect::<Vec<_>>();
         let conns = [
             [0, 1, 2, 3],
-            [0, 3, 7, 4],
-            [0, 4, 5, 1],
-            [1, 5, 6, 2],
-            [2, 6, 7, 3],
-            [4, 7, 6, 5],
+            [4, 5, 6, 7],
+            [0, 1, 5, 4],
+            [1, 2, 6, 5],
+            [2, 3, 7, 6],
+            [3, 0, 4, 7],
         ];
         let flat: Vec<usize> = conns
             .iter()
@@ -788,11 +788,11 @@ mod tests {
             pts.to_vec(),
             vec![
                 vec![0, 1, 2, 3],
-                vec![0, 3, 7, 4],
-                vec![0, 4, 5, 1],
-                vec![1, 5, 6, 2],
-                vec![2, 6, 7, 3],
-                vec![4, 7, 6, 5],
+                vec![4, 5, 6, 7],
+                vec![0, 1, 5, 4],
+                vec![1, 2, 6, 5],
+                vec![2, 3, 7, 6],
+                vec![3, 0, 4, 7],
             ],
         );
         assert_eq!(
@@ -863,11 +863,11 @@ mod tests {
         let points: Vec<[f64; 3]> = unit_cube().points.clone();
         let faces: Vec<Vec<usize>> = vec![
             vec![0, 1, 2, 3],
-            vec![0, 3, 7, 4],
-            vec![0, 4, 5, 1],
-            vec![1, 5, 6, 2],
-            vec![2, 6, 7, 3],
-            vec![4, 7, 6, 5],
+            vec![4, 5, 6, 7],
+            vec![0, 1, 5, 4],
+            vec![1, 2, 6, 5],
+            vec![2, 3, 7, 6],
+            vec![3, 0, 4, 7],
         ];
         let mut data = Vec::new();
         let mut offsets = Vec::new();

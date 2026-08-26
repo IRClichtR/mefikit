@@ -99,9 +99,19 @@ def install_conversions():
             "HEX20": 30,
         }
 
+        # Node permutations to convert VTK ordering to MED ordering.
+        _mf_permutations = {
+            "TET4": [0, 1, 3, 2],
+            "TET10": [0, 1, 3, 2, 4, 8, 7, 6, 5, 9],
+            "HEX8": [4, 5, 6, 7, 0, 1, 2, 3],
+        }
+
         def _mf_reg_to_mc_connectivity(et: str, conn: npt.NDArray[np.uintp]):
             num_nodes = conn.shape[1]
             n_elem = conn.shape[0]
+
+            if et in _mf_permutations:
+                conn = conn[:, _mf_permutations[et]]
 
             new_connectivity = np.insert(
                 conn.flatten(), np.arange(n_elem) * num_nodes, mf_types_mc_id[et]

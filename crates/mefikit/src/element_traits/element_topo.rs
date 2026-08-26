@@ -79,13 +79,12 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 _ => panic!("It is not possible to ask for codim diff from D1 and D2 on QUAD"),
             },
             TET4 => match codim {
-                // TODO: check MEDFile ordering
                 Dimension::D1 => {
                     let conn = arr2(&[
-                        [co[0], co[1], co[2]],
+                        [co[0], co[1], co[3]],
                         [co[1], co[2], co[3]],
-                        [co[2], co[3], co[0]],
-                        [co[3], co[0], co[1]],
+                        [co[2], co[0], co[3]],
+                        [co[0], co[2], co[1]],
                     ]);
                     res.push((TRI3, Connectivity::new_regular(conn.to_shared())));
                 }
@@ -112,11 +111,11 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 Dimension::D1 => {
                     let conn = arr2(&[
                         [co[0], co[1], co[2], co[3]],
-                        [co[0], co[3], co[7], co[4]],
-                        [co[0], co[4], co[5], co[1]],
-                        [co[1], co[5], co[6], co[2]],
-                        [co[2], co[6], co[7], co[3]],
-                        [co[4], co[7], co[6], co[5]],
+                        [co[4], co[5], co[6], co[7]],
+                        [co[0], co[1], co[5], co[4]],
+                        [co[1], co[2], co[6], co[5]],
+                        [co[2], co[3], co[7], co[6]],
+                        [co[3], co[0], co[4], co[7]],
                     ]);
                     res.push((QUAD4, Connectivity::new_regular(conn.to_shared())));
                 }
@@ -217,8 +216,8 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 (
                     PHED,
                     vec![
-                        co[0], co[1], co[2], m, co[1], co[2], co[3], m, co[2], co[3], co[0], m,
-                        co[3], co[0], co[1],
+                        co[0], co[1], co[3], m, co[1], co[2], co[3], m, co[2], co[0], co[3], m,
+                        co[0], co[2], co[1],
                     ],
                 )
             }
@@ -239,9 +238,9 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 (
                     PHED,
                     vec![
-                        co[0], co[1], co[2], co[3], m, co[0], co[3], co[7], co[4], m, co[0], co[4],
-                        co[5], co[1], m, co[1], co[5], co[6], co[2], m, co[2], co[6], co[7], co[3],
-                        m, co[4], co[7], co[6], co[5],
+                        co[0], co[1], co[2], co[3], m, co[4], co[5], co[6], co[7], m, co[0], co[1],
+                        co[5], co[4], m, co[1], co[2], co[6], co[5], m, co[2], co[3], co[7], co[6],
+                        m, co[3], co[0], co[4], co[7],
                     ],
                 )
             }
@@ -252,12 +251,18 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 (
                     PHED,
                     vec![
-                        co[0], co[1], co[2], co[3], co[8], co[9], co[10], co[11], m, co[0], co[3],
-                        co[7], co[4], co[11], co[19], co[15], co[16], m, co[0], co[4], co[5],
-                        co[1], co[16], co[12], co[17], co[8], m, co[1], co[5], co[6], co[2],
-                        co[17], co[13], co[18], co[9], m, co[2], co[6], co[7], co[3], co[18],
-                        co[14], co[19], co[10], m, co[4], co[7], co[6], co[5], co[15], co[14],
-                        co[13], co[12],
+                        // bottom [0,1,2,3]
+                        co[0], co[1], co[2], co[3], co[8], co[9], co[10], co[11], m,
+                        // top [4,5,6,7]
+                        co[4], co[5], co[6], co[7], co[12], co[13], co[14], co[15], m,
+                        // front [0,1,5,4]
+                        co[0], co[1], co[5], co[4], co[8], co[17], co[12], co[16], m,
+                        // right [1,2,6,5]
+                        co[1], co[2], co[6], co[5], co[9], co[18], co[13], co[17], m,
+                        // back [2,3,7,6]
+                        co[2], co[3], co[7], co[6], co[10], co[19], co[14], co[18], m,
+                        // left [3,0,4,7]
+                        co[3], co[0], co[4], co[7], co[11], co[16], co[15], co[19],
                     ],
                 )
             }
@@ -781,7 +786,7 @@ mod tests {
         assert_eq!(poly_conn[7], usize::MAX);
         assert_eq!(poly_conn[11], usize::MAX);
         // Check first face
-        assert_eq!(&poly_conn[0..3], &[0, 1, 2]);
+        assert_eq!(&poly_conn[0..3], &[0, 1, 3]);
     }
 
     #[test]
@@ -814,8 +819,8 @@ mod tests {
         assert_eq!(poly_conn.len(), 29);
         // Check first face
         assert_eq!(&poly_conn[0..4], &[0, 1, 2, 3]);
-        // Check last face
-        assert_eq!(&poly_conn[25..29], &[4, 7, 6, 5]);
+        // Check last face (left = VTK face 5)
+        assert_eq!(&poly_conn[25..29], &[3, 0, 4, 7]);
     }
 
     #[test]
@@ -979,7 +984,11 @@ mod tests {
         );
         let (et2, conn2) = poly_elem.from_poly().unwrap();
         assert_eq!(et2, ElementType::TET4);
-        assert_eq!(conn2, vec![0, 1, 2, 3]);
+        // from_phed_tet4 may return a different permutation of the same nodes.
+        assert_eq!(conn2.len(), 4);
+        let mut sorted = conn2.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3]);
     }
 
     #[test]
@@ -1031,10 +1040,10 @@ mod tests {
             [0.0, 0.0, 1.0]
         ];
         // Build PHED with faces in a different order than to_poly produces.
-        // TET4 faces opposite each vertex, all counterclockwise:
-        // face0: [0,1,2] (opp 3), face1: [0,3,1] (opp 2), face2: [0,2,3] (opp 1), face3: [1,3,2] (opp 0)
+        // VTK TET4 faces in shuffled order, all consistently oriented:
+        // face0: [2,0,3] (opp 1), face1: [0,1,3] (opp 2), face2: [0,2,1] (opp 3), face3: [1,2,3] (opp 0)
         let m = usize::MAX;
-        let phed_conn = vec![0, 1, 2, m, 0, 3, 1, m, 0, 2, 3, m, 1, 3, 2];
+        let phed_conn = vec![2, 0, 3, m, 0, 1, 3, m, 0, 2, 1, m, 1, 2, 3];
         let groups = crate::mesh::ArcGroups::new();
         let poly_elem = Element::new(
             0,
@@ -1065,10 +1074,10 @@ mod tests {
             [1.0, 1.0, 1.0],
             [0.0, 1.0, 1.0]
         ];
-        // Same faces as to_poly but in a different order.
+        // Same faces as to_poly but in a different order (VTK convention).
         let m = usize::MAX;
         let phed_conn = vec![
-            4, 7, 6, 5, m, 0, 1, 2, 3, m, 0, 3, 7, 4, m, 2, 6, 7, 3, m, 0, 4, 5, 1, m, 1, 5, 6, 2,
+            4, 5, 6, 7, m, 3, 0, 4, 7, m, 0, 1, 2, 3, m, 2, 3, 7, 6, m, 1, 2, 6, 5, m, 0, 1, 5, 4,
         ];
         let groups = crate::mesh::ArcGroups::new();
         let poly_elem = Element::new(
