@@ -287,6 +287,12 @@ impl PyUMesh {
         new_mesh.into()
     }
 
+    fn unpolyze(&self) -> PyResult<Self> {
+        let new_mesh =
+            mf::unpolyze(&self.inner.view()).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(new_mesh.into())
+    }
+
     fn num_elements(&self) -> usize {
         self.inner.num_elements()
     }

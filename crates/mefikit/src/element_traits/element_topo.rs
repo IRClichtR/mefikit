@@ -262,6 +262,33 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
         }
     }
 
+    /// Converts a poly element back to its regular equivalent.
+    ///
+    /// - Regular elements (VERTEX, SEG*, TRI*, QUAD*, TET*, HEX*) are returned unchanged.
+    /// - SPLINE cannot be converted (ambiguous: could be SEG2, SEG3, or SEG4).
+    /// - PGON with 3 nodes becomes TRI3, with 4 nodes becomes QUAD4.
+    /// - PHED with 4 triangular faces becomes TET4, with 6 quadrilateral faces becomes HEX8.
+    ///   Face orientation is verified by checking that each edge is shared by exactly
+    ///   two faces with consistent winding.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_poly(&self) -> Result<(ElementType, Vec<usize>), String> {
+        use ElementType::*;
+        let co = self.connectivity();
+        match self.element_type() {
+            VERTEX | SEG2 | SEG3 | SEG4 | TRI3 | TRI6 | TRI7 | QUAD4 | QUAD8 | QUAD9 | TET4
+            | TET10 | HEX8 | HEX21 => Ok((self.element_type(), co.to_vec())),
+            SPLINE => Err("SPLINE cannot be converted to a regular element".into()),
+            PGON => match co.len() {
+                3 => Ok((TRI3, co.to_vec())),
+                4 => Ok((QUAD4, co.to_vec())),
+                n => Err(format!(
+                    "PGON with {n} nodes cannot be converted to TRI3 or QUAD4"
+                )),
+            },
+            PHED => phed_to_regular(co),
+        }
+    }
+
     /// Decomposes the element into simplex elements.
     ///
     /// Returns a list of (element type, connectivity) tuples representing
@@ -292,6 +319,221 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
 }
 
 impl<'a, T> ElementTopo<'a> for T where T: ElementLike<'a> {}
+
+/// Converts a PHED connectivity (usize::MAX-separated faces) to a regular element.
+///
+/// Uses `IndirectIndex` API to iterate over faces. Determines node ordering
+/// purely from face adjacency without assuming any particular face order.
+fn phed_to_regular(co: &[usize]) -> Result<(ElementType, Vec<usize>), String> {
+    use rustc_hash::FxHashMap;
+    use smallvec::SmallVec;
+
+    use super::utils::SortedVecKey;
+
+    // Parse PHED connectivity into faces.
+    // Faces are separated by usize::MAX sentinels; the last face has no trailing sentinel.
+    let mut face_data = Vec::new();
+    let mut face_offsets = Vec::new();
+    let mut offset = 0usize;
+    for chunk in co.split(|&e| e == usize::MAX) {
+        if chunk.is_empty() {
+            continue;
+        }
+        offset += chunk.len();
+        face_offsets.push(offset);
+        face_data.extend_from_slice(chunk);
+    }
+
+    let faces = crate::mesh::IndirectIndexOwned {
+        data: ndarray::Array1::from_vec(face_data),
+        offsets: ndarray::Array1::from_vec(face_offsets),
+    };
+
+    let num_faces = faces.len();
+    if num_faces == 0 {
+        return Err("PHED has no faces".into());
+    }
+    let nodes_per_face = faces[0].len();
+
+    if !faces.iter().all(|f| f.len() == nodes_per_face) {
+        return Err("PHED faces have inconsistent node counts".into());
+    }
+
+    // Collect unique nodes in first-appearance order.
+    let mut unique_nodes = Vec::new();
+    let mut seen = FxHashMap::default();
+    for face in faces.iter() {
+        for &n in face {
+            use std::collections::hash_map::Entry;
+            if let Entry::Vacant(e) = seen.entry(n) {
+                e.insert(unique_nodes.len());
+                unique_nodes.push(n);
+            }
+        }
+    }
+
+    // Build edge→face map. Key: sorted edge, Value: list of face indices.
+    let mut edge_faces: FxHashMap<SortedVecKey, Vec<usize>> = FxHashMap::default();
+    for (fi, face) in faces.iter().enumerate() {
+        let n = face.len();
+        for j in 0..n {
+            let key = SortedVecKey::new(SmallVec::from_vec(vec![face[j], face[(j + 1) % n]]));
+            edge_faces.entry(key).or_default().push(fi);
+        }
+    }
+
+    // Validate: each edge must be shared by exactly 2 faces (closed surface).
+    for (key, occurrences) in &edge_faces {
+        if occurrences.len() != 2 {
+            return Err(format!(
+                "Edge {:?} is shared by {} faces (expected 2 for closed surface)",
+                key,
+                occurrences.len()
+            ));
+        }
+    }
+
+    match (num_faces, nodes_per_face) {
+        (4, 3) => from_phed_tet4(&faces),
+        (6, 4) => from_phed_hex8(&faces, &edge_faces),
+        _ => Err(format!(
+            "PHED with {num_faces} faces of {nodes_per_face} nodes cannot be converted to TET4 or HEX8"
+        )),
+    }
+}
+
+/// Reconstruct TET4 node ordering from 4 triangular faces.
+///
+/// Algorithm: pick face F0 = [a, b, c]. The 4th node d is the one node not in F0.
+/// Found by scanning any other face for a node not in {a, b, c}.
+fn from_phed_tet4(
+    faces: &crate::mesh::IndirectIndexOwned<usize>,
+) -> Result<(ElementType, Vec<usize>), String> {
+    use ElementType::TET4;
+
+    let f0 = &faces[0];
+    let a = f0[0];
+    let b = f0[1];
+    let c = f0[2];
+
+    // The 4th node is any node not in {a, b, c}.
+    let d = faces
+        .iter()
+        .skip(1)
+        .find_map(|face| face.iter().find(|&&n| n != a && n != b && n != c).copied())
+        .ok_or_else(|| "Could not find 4th node in TET4 reconstruction".to_string())?;
+
+    Ok((TET4, vec![a, b, c, d]))
+}
+
+/// Reconstruct HEX8 node ordering from 6 quadrilateral faces.
+///
+/// Algorithm:
+/// 1. Pick face F0 = [a, b, c, d] as the "bottom" face.
+/// 2. Find the opposite face (shares no nodes with F0) as the "top" face.
+/// 3. For each edge of F0, find the side face sharing that edge.
+/// 4. From the side face's ordering, determine which top node is adjacent to
+///    which bottom node, giving [a→e, b→f, c→g, d→h].
+/// 5. Return [a, b, c, d, e, f, g, h].
+fn from_phed_hex8(
+    faces: &crate::mesh::IndirectIndexOwned<usize>,
+    edge_faces: &rustc_hash::FxHashMap<super::utils::SortedVecKey, Vec<usize>>,
+) -> Result<(ElementType, Vec<usize>), String> {
+    use smallvec::SmallVec;
+
+    use super::utils::SortedVecKey;
+    use ElementType::HEX8;
+
+    let f0 = &faces[0];
+    let bottom: [usize; 4] = [f0[0], f0[1], f0[2], f0[3]];
+    let bottom_set: std::collections::HashSet<usize> = bottom.iter().copied().collect();
+
+    // Find the face opposite to F0: shares zero nodes with F0.
+    let opposite_idx = faces
+        .iter()
+        .enumerate()
+        .find(|&(fi, face)| {
+            if fi == 0 {
+                return false;
+            }
+            face.iter().all(|&n| !bottom_set.contains(&n))
+        })
+        .map(|(fi, _)| fi)
+        .ok_or_else(|| "Could not find opposite face for HEX8 reconstruction".to_string())?;
+
+    // For each edge of the bottom face, find the side face sharing that edge,
+    // then determine which top node is "above" which bottom node.
+    let mut top_of: rustc_hash::FxHashMap<usize, usize> = rustc_hash::FxHashMap::default();
+
+    for j in 0..4 {
+        let a = bottom[j];
+        let b = bottom[(j + 1) % 4];
+
+        // Find a side face (not F0, not opposite) that contains both a and b.
+        let key = SortedVecKey::new(SmallVec::from_vec(vec![a, b]));
+        let side_idx = edge_faces
+            .get(&key)
+            .and_then(|occurrences| {
+                occurrences
+                    .iter()
+                    .find(|&&fi| fi != 0 && fi != opposite_idx)
+                    .copied()
+            })
+            .ok_or_else(|| {
+                format!("Could not find side face for edge [{a},{b}] in HEX8 reconstruction")
+            })?;
+
+        let side = &faces[side_idx];
+        let n = side.len();
+
+        // In the side face, find the node adjacent to `a` that is NOT a bottom node.
+        // This is the top node "above" a.
+        use std::collections::hash_map::Entry;
+        if let Entry::Vacant(e) = top_of.entry(a) {
+            let pos_a = side.iter().position(|&x| x == a).unwrap();
+            let prev = side[(pos_a + n - 1) % n];
+            let next = side[(pos_a + 1) % n];
+            let above_a = if !bottom_set.contains(&prev) {
+                prev
+            } else {
+                next
+            };
+            e.insert(above_a);
+        }
+
+        // Same for `b`.
+        if let Entry::Vacant(e) = top_of.entry(b) {
+            let pos_b = side.iter().position(|&x| x == b).unwrap();
+            let prev = side[(pos_b + n - 1) % n];
+            let next = side[(pos_b + 1) % n];
+            let above_b = if !bottom_set.contains(&prev) {
+                prev
+            } else {
+                next
+            };
+            e.insert(above_b);
+        }
+    }
+
+    let top: [usize; 4] = bottom
+        .iter()
+        .map(|&b| {
+            top_of
+                .get(&b)
+                .copied()
+                .ok_or_else(|| format!("Missing top mapping for node {b}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .unwrap();
+
+    Ok((
+        HEX8,
+        vec![
+            bottom[0], bottom[1], bottom[2], bottom[3], top[0], top[1], top[2], top[3],
+        ],
+    ))
+}
 
 #[cfg(test)]
 mod tests {
@@ -643,5 +885,235 @@ mod tests {
         let (et, poly_conn) = elem.to_poly();
         assert_eq!(et, ElementType::SPLINE);
         assert_eq!(poly_conn, vec![0, 1, 2]);
+    }
+
+    // ===== from_poly tests =====
+
+    #[test]
+    fn test_from_poly_regular_unchanged() {
+        let coords = nd::array![[0.0, 0.0], [1.0, 0.0]];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1],
+            ElementType::SEG2,
+            &groups,
+        );
+        let (et, conn) = elem.from_poly().unwrap();
+        assert_eq!(et, ElementType::SEG2);
+        assert_eq!(conn, vec![0, 1]);
+    }
+
+    #[test]
+    fn test_from_poly_spline_error() {
+        let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.5, 0.5]];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2],
+            ElementType::SPLINE,
+            &groups,
+        );
+        assert!(elem.from_poly().is_err());
+    }
+
+    #[test]
+    fn test_from_poly_pgon3_to_tri3() {
+        let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2],
+            ElementType::PGON,
+            &groups,
+        );
+        let (et, conn) = elem.from_poly().unwrap();
+        assert_eq!(et, ElementType::TRI3);
+        assert_eq!(conn, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_from_poly_pgon4_to_quad4() {
+        let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2, 3],
+            ElementType::PGON,
+            &groups,
+        );
+        let (et, conn) = elem.from_poly().unwrap();
+        assert_eq!(et, ElementType::QUAD4);
+        assert_eq!(conn, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_poly_pgon5_error() {
+        let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.5], [0.0, 1.0]];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2, 3, 4],
+            ElementType::PGON,
+            &groups,
+        );
+        assert!(elem.from_poly().is_err());
+    }
+
+    #[test]
+    fn test_from_poly_tet4_roundtrip() {
+        let coords = nd::array![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0]
+        ];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2, 3],
+            ElementType::TET4,
+            &groups,
+        );
+        let (et, poly_conn) = elem.to_poly();
+        assert_eq!(et, ElementType::PHED);
+
+        let groups2 = crate::mesh::ArcGroups::new();
+        let poly_elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &poly_conn,
+            ElementType::PHED,
+            &groups2,
+        );
+        let (et2, conn2) = poly_elem.from_poly().unwrap();
+        assert_eq!(et2, ElementType::TET4);
+        assert_eq!(conn2, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_poly_hex8_roundtrip() {
+        let coords = nd::array![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0]
+        ];
+        let groups = crate::mesh::ArcGroups::new();
+        let elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &[0, 1, 2, 3, 4, 5, 6, 7],
+            ElementType::HEX8,
+            &groups,
+        );
+        let (et, poly_conn) = elem.to_poly();
+        assert_eq!(et, ElementType::PHED);
+
+        let groups2 = crate::mesh::ArcGroups::new();
+        let poly_elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &poly_conn,
+            ElementType::PHED,
+            &groups2,
+        );
+        let (et2, conn2) = poly_elem.from_poly().unwrap();
+        assert_eq!(et2, ElementType::HEX8);
+        assert_eq!(conn2, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn test_from_poly_phed_shuffled_faces() {
+        let coords = nd::array![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0]
+        ];
+        // Build PHED with faces in a different order than to_poly produces.
+        // TET4 faces opposite each vertex, all counterclockwise:
+        // face0: [0,1,2] (opp 3), face1: [0,3,1] (opp 2), face2: [0,2,3] (opp 1), face3: [1,3,2] (opp 0)
+        let m = usize::MAX;
+        let phed_conn = vec![0, 1, 2, m, 0, 3, 1, m, 0, 2, 3, m, 1, 3, 2];
+        let groups = crate::mesh::ArcGroups::new();
+        let poly_elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &phed_conn,
+            ElementType::PHED,
+            &groups,
+        );
+        let (et, conn) = poly_elem.from_poly().unwrap();
+        assert_eq!(et, ElementType::TET4);
+        assert_eq!(conn.len(), 4);
+        let mut sorted = conn.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_poly_hex8_shuffled_faces() {
+        let coords = nd::array![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0]
+        ];
+        // Same faces as to_poly but in a different order.
+        let m = usize::MAX;
+        let phed_conn = vec![
+            4, 7, 6, 5, m, 0, 1, 2, 3, m, 0, 3, 7, 4, m, 2, 6, 7, 3, m, 0, 4, 5, 1, m, 1, 5, 6, 2,
+        ];
+        let groups = crate::mesh::ArcGroups::new();
+        let poly_elem = Element::new(
+            0,
+            coords.view(),
+            None,
+            &0,
+            &phed_conn,
+            ElementType::PHED,
+            &groups,
+        );
+        let (et, conn) = poly_elem.from_poly().unwrap();
+        assert_eq!(et, ElementType::HEX8);
+        assert_eq!(conn.len(), 8);
+        let mut sorted = conn.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3, 4, 5, 6, 7]);
     }
 }

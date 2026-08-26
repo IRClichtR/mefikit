@@ -32,6 +32,25 @@ pub fn polyze(mesh: &UMeshView) -> UMesh {
     new_mesh
 }
 
+/// Converts poly elements back to their regular equivalents.
+///
+/// - SPLINE cannot be converted (ambiguous).
+/// - PGON with 3 nodes becomes TRI3, with 4 nodes becomes QUAD4.
+/// - PHED with 4 triangular faces becomes TET4, with 6 quadrilateral faces becomes HEX8.
+/// - Already-regular elements are copied unchanged.
+///
+/// Returns `Err` on the first element that cannot be converted.
+pub fn unpolyze(mesh: &UMeshView) -> Result<UMesh, String> {
+    let mut new_mesh = UMesh::new(mesh.coords().to_shared());
+
+    for elem in mesh.elements() {
+        let (et, conn) = elem.from_poly()?;
+        new_mesh.add_element(et, &conn, None, None);
+    }
+
+    Ok(new_mesh)
+}
+
 /// Converts elements of a specific dimension to their poly equivalents.
 ///
 /// Elements not of the target dimension are copied as-is (regular blocks stay
@@ -243,5 +262,178 @@ mod tests {
                 .element_types()
                 .any(|&et| et == ElementType::QUAD4)
         );
+    }
+
+    // ===== unpolyze tests =====
+
+    #[test]
+    fn test_unpolyze_empty_mesh() {
+        let coords = nd::ArcArray2::zeros((0, 2));
+        let mesh = UMesh::new(coords);
+        let result = unpolyze(&mesh.view()).unwrap();
+        assert_eq!(result.num_elements(), 0);
+    }
+
+    #[test]
+    fn test_unpolyze_tri3_roundtrip() {
+        let coords =
+            nd::ArcArray2::from_shape_vec((3, 2), vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0]).unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(ElementType::TRI3, nd::arr2(&[[0, 1, 2]]).to_shared(), None);
+
+        let poly_mesh = polyze(&mesh.view());
+        let unpoly_mesh = unpolyze(&poly_mesh.view()).unwrap();
+
+        assert_eq!(unpoly_mesh.num_elements(), 1);
+        let types: Vec<ElementType> = unpoly_mesh.element_types().copied().collect();
+        assert_eq!(types, vec![ElementType::TRI3]);
+    }
+
+    #[test]
+    fn test_unpolyze_quad4_roundtrip() {
+        let coords =
+            nd::ArcArray2::from_shape_vec((4, 2), vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0])
+                .unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::QUAD4,
+            nd::arr2(&[[0, 1, 2, 3]]).to_shared(),
+            None,
+        );
+
+        let poly_mesh = polyze(&mesh.view());
+        let unpoly_mesh = unpolyze(&poly_mesh.view()).unwrap();
+
+        assert_eq!(unpoly_mesh.num_elements(), 1);
+        let types: Vec<ElementType> = unpoly_mesh.element_types().copied().collect();
+        assert_eq!(types, vec![ElementType::QUAD4]);
+    }
+
+    #[test]
+    fn test_unpolyze_tet4_roundtrip() {
+        let coords = nd::ArcArray2::from_shape_vec(
+            (4, 3),
+            vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        )
+        .unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::TET4,
+            nd::arr2(&[[0, 1, 2, 3]]).to_shared(),
+            None,
+        );
+
+        let poly_mesh = polyze(&mesh.view());
+        let unpoly_mesh = unpolyze(&poly_mesh.view()).unwrap();
+
+        assert_eq!(unpoly_mesh.num_elements(), 1);
+        let types: Vec<ElementType> = unpoly_mesh.element_types().copied().collect();
+        assert_eq!(types, vec![ElementType::TET4]);
+    }
+
+    #[test]
+    fn test_unpolyze_hex8_roundtrip() {
+        let coords = nd::ArcArray2::from_shape_vec(
+            (8, 3),
+            vec![
+                0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+                0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::HEX8,
+            nd::arr2(&[[0, 1, 2, 3, 4, 5, 6, 7]]).to_shared(),
+            None,
+        );
+
+        let poly_mesh = polyze(&mesh.view());
+        let unpoly_mesh = unpolyze(&poly_mesh.view()).unwrap();
+
+        assert_eq!(unpoly_mesh.num_elements(), 1);
+        let types: Vec<ElementType> = unpoly_mesh.element_types().copied().collect();
+        assert_eq!(types, vec![ElementType::HEX8]);
+    }
+
+    #[test]
+    fn test_unpolyze_mixed_mesh() {
+        let coords = nd::ArcArray2::from_shape_vec(
+            (5, 2),
+            vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.5, 0.5],
+        )
+        .unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::SEG2,
+            nd::arr2(&[[0, 1], [1, 3]]).to_shared(),
+            None,
+        );
+        mesh.add_regular_block(
+            ElementType::QUAD4,
+            nd::arr2(&[[0, 1, 3, 2]]).to_shared(),
+            None,
+        );
+        mesh.add_element(ElementType::PGON, &[0, 1, 4, 3, 2], None, None);
+
+        let poly_mesh = polyze(&mesh.view());
+        let result = unpolyze(&poly_mesh.view());
+
+        // SPLINE cannot be converted, so this should error.
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unpolyze_spline_error() {
+        let coords =
+            nd::ArcArray2::from_shape_vec((3, 2), vec![0.0, 0.0, 1.0, 0.0, 2.0, 0.0]).unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::SEG2,
+            nd::arr2(&[[0, 1], [1, 2]]).to_shared(),
+            None,
+        );
+
+        let poly_mesh = polyze(&mesh.view());
+        assert!(
+            poly_mesh
+                .element_types()
+                .all(|&et| et == ElementType::SPLINE)
+        );
+
+        let result = unpolyze(&poly_mesh.view());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unpolyze_coords_preserved() {
+        let coords =
+            nd::ArcArray2::from_shape_vec((4, 2), vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0])
+                .unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(
+            ElementType::QUAD4,
+            nd::arr2(&[[0, 1, 2, 3]]).to_shared(),
+            None,
+        );
+
+        let poly_mesh = polyze(&mesh.view());
+        let unpoly_mesh = unpolyze(&poly_mesh.view()).unwrap();
+
+        assert_eq!(unpoly_mesh.coords(), mesh.coords());
+    }
+
+    #[test]
+    fn test_unpolyze_pure_regular_mesh() {
+        let coords =
+            nd::ArcArray2::from_shape_vec((3, 2), vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0]).unwrap();
+        let mut mesh = UMesh::new(coords);
+        mesh.add_regular_block(ElementType::TRI3, nd::arr2(&[[0, 1, 2]]).to_shared(), None);
+
+        // unpolyze on a mesh with no poly elements should just copy it.
+        let result = unpolyze(&mesh.view()).unwrap();
+        assert_eq!(result.num_elements(), 1);
+        let types: Vec<ElementType> = result.element_types().copied().collect();
+        assert_eq!(types, vec![ElementType::TRI3]);
     }
 }
