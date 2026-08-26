@@ -1,7 +1,7 @@
 # Summary
 
 - [Introduction](./1_introduction.md)
-- [`mefikit` Mesh Format](./2_format.md)
+- [Element Conventions](./2_format.md)
 - [Topological basic ops](./3_topology.md)
 - [Python guide](./4_python_guide.md)
 - [Python Examples](./python_examples/SUMMARY.md)

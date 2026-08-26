@@ -79,6 +79,7 @@ pub trait ElementTopo<'a>: ElementLike<'a> {
                 _ => panic!("It is not possible to ask for codim diff from D1 and D2 on QUAD"),
             },
             TET4 => match codim {
+                // TODO: check MEDFile ordering
                 Dimension::D1 => {
                     let conn = arr2(&[
                         [co[0], co[1], co[2]],
