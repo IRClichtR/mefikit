@@ -22,7 +22,7 @@ volumes = mf.build_cmesh(x, y, z)
 
 ### Simple descending_mesh
 
-This functionality is able to compute the descending connectivity of the porvided mesh.
+This functionality is able to compute the descending connectivity of the provided mesh.
 It can act on elements of dimension 1, 2 or 3.
 
 
@@ -49,7 +49,7 @@ plotter.show()
 
 ### Submesh in one go
 
-You might want to directly access either the node mesh or the edges mesh. You can ! And going into one step is ever faster than chaining mutliple `.descend()` calls.
+You might want to directly access either the node mesh or the edges mesh. You can ! And going into one step is ever faster than chaining multiple `.descend()` calls.
 
 
 ```python
@@ -60,7 +60,7 @@ plotter = pv.Plotter(shape=(1, 2))
 plotter.subplot(0, 0)
 plotter.add_mesh(edges.to_pyvista().shrink(0.8))
 plotter.subplot(0, 1)
-plotter.add_mesh(vertex.to_pyvista())
+plotter.add_mesh(nodes.to_pyvista())
 plotter.show()
 ```
 
@@ -72,7 +72,7 @@ plotter.show()
 
 ## Boundaries computation
 
-As it is very common to compute boundaries on a mesh (for boundary counditions for ex), there is a custom `boundaries` computation method.
+As it is very common to compute boundaries on a mesh (for boundary conditions for ex), there is a custom `boundaries` computation method.
 
 
 ```python
@@ -281,3 +281,37 @@ plotter.show()
 
 
 ![png](topological_tools_files/topological_tools_22_0.png)
+
+
+
+## Split
+
+This tool is usefull to split cells into smaller cells. It does not change the topology of the domain not the element type.
+Using it it gives you 2^n times the number of elements where n is the dimension of of the elements.
+
+
+```python
+x = np.linspace(0.0, 3.0, 2, endpoint=True)
+y = np.logspace(0.0, 1.0, 2, endpoint=True)
+z = range(2)
+surf = mf.build_cmesh(x, y, z)
+```
+
+
+```python
+surf_splitted = surf.split()
+```
+
+
+```python
+# pv.set_jupyter_backend("trame")
+pt = pv.Plotter()
+pt.add_mesh(surf_splitted.to_pyvista().shrink(0.9), show_edges=True, edge_color="red")
+# pt.add_mesh(surf.to_pyvista().shrink(0.9), show_edges=True)
+pt.camera_position
+pt.show()
+```
+
+
+
+![png](topological_tools_files/topological_tools_26_0.png)

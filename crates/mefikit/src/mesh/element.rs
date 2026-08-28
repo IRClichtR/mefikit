@@ -1,11 +1,9 @@
 use ndarray::prelude as nd;
-use once_cell::sync::OnceCell;
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use super::Dimension;
+use crate::geometry::Convexity;
 
 /// Indicates whether an element has a fixed or variable number of nodes.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -181,6 +179,17 @@ impl ElementType {
             PHED => None, // Polyhedron can have arbitrary number of nodes
         }
     }
+
+    /// Returns the convexity known from the element type alone.
+    ///
+    /// Fixed-node element types are always convex; arbitrary polygon, polyhedron and spline
+    /// elements (PGON, PHED, SPLINE) can be concave and their convexity must be tested on demand.
+    pub fn known_convexity(&self) -> Convexity {
+        match self.regularity() {
+            Regularity::Regular => Convexity::Convex,
+            Regularity::Poly => Convexity::Unknown,
+        }
+    }
 }
 
 /// Unique identifier for an element, combining its type and index.
@@ -204,23 +213,23 @@ impl ElementId {
     }
 }
 
+use super::element_block::ArcGroups;
+use crate::element_traits::element_groups::ElementGroups;
+
 /// Imutable Item of an ElementBlock.
 ///
 /// This struct is used to read data on an element in an element block. Note that is is only a
 /// view. It holds references to this element family, fields and connectivity (local data). This
-/// view still has access to the whole coordinates array and the whole groups hashmap (but not
-/// publicly).
+/// view still has access to the whole coordinates array and the groups map (but not publicly).
 #[derive(Debug)]
 pub struct Element<'a> {
     pub index: usize,
     coords: nd::ArrayView2<'a, f64>,
     pub fields: Option<BTreeMap<&'a str, nd::ArrayViewD<'a, f64>>>,
     pub family: &'a usize,
-    groups: &'a BTreeMap<String, BTreeSet<usize>>,
     pub connectivity: &'a [usize],
     pub element_type: ElementType,
-    // element_coords_cache: OnceCell<Array2<f64>>,
-    element_groups_cache: OnceCell<Vec<String>>,
+    groups: &'a ArcGroups,
 }
 
 /// Panics if the coords array is empty or if the connectivity array is empty.
@@ -268,11 +277,6 @@ pub trait ElementLike<'a> {
     /// Returns the space dimension of the element
     fn space_dimension(&self) -> usize;
 
-    // Groups queries
-
-    fn groups(&self) -> &Vec<String>;
-    fn in_group(&self, group: &str) -> bool;
-
     // TODO: fields queries
     // fn fields(&self) -> BTreeMap<String, ArrayViewD<'a, f64>>;
     // fn field(&self, field: &str) -> ArrayViewD<'a, f64>;
@@ -288,20 +292,18 @@ impl<'a> Element<'a> {
         coords: nd::ArrayView2<'a, f64>,
         fields: Option<BTreeMap<&'a str, nd::ArrayViewD<'a, f64>>>,
         family: &'a usize,
-        groups: &'a BTreeMap<String, BTreeSet<usize>>,
         connectivity: &'a [usize],
         element_type: ElementType,
+        groups: &'a ArcGroups,
     ) -> Element<'a> {
         Element {
             index,
             coords,
             fields,
             family,
-            groups,
             connectivity,
             element_type,
-            // element_coords_cache: OnceCell::new(),
-            element_groups_cache: OnceCell::new(),
+            groups,
         }
     }
 }
@@ -323,33 +325,32 @@ impl<'a> ElementLike<'a> for Element<'a> {
         self.coords.row(co[i]).to_slice().unwrap()
     }
 
-    #[cfg(feature = "rayon")]
-    fn groups(&self) -> &Vec<String> {
-        self.element_groups_cache.get_or_init(|| {
-            self.groups
-                .par_iter()
-                .filter(|(_, v)| v.contains(self.family))
-                .map(|(k, _)| k)
-                .cloned()
-                .collect()
-        })
-    }
-    #[cfg(not(feature = "rayon"))]
-    fn groups(&self) -> &Vec<String> {
-        self.element_groups_cache.get_or_init(|| {
-            self.groups
-                .iter()
-                .filter(|(_, v)| v.contains(self.family))
-                .map(|(k, _)| k)
-                .cloned()
-                .collect()
-        })
-    }
-    fn in_group(&self, group: &str) -> bool {
-        self.groups.contains_key(group) && self.groups[group].contains(self.family)
-    }
     fn space_dimension(&self) -> usize {
         self.coords.shape()[1]
+    }
+}
+
+impl<'a> ElementGroups<'a> for Element<'a> {
+    #[inline]
+    fn family_id(&self) -> usize {
+        *self.family
+    }
+
+    #[inline]
+    fn in_group(&self, group: &str) -> bool {
+        self.groups
+            .0
+            .get(group)
+            .map(|fids| fids.contains(&self.family_id()))
+            .unwrap_or(false)
+    }
+
+    fn groups(&self) -> impl Iterator<Item = &'a str> {
+        let fid = self.family_id();
+        self.groups
+            .iter()
+            .filter(move |(_, fids)| fids.contains(&fid))
+            .map(|(name, _)| name.as_str())
     }
 }
 
@@ -357,8 +358,8 @@ impl<'a> ElementLike<'a> for Element<'a> {
 ///
 /// This struct is used to read and write data on an element in an element block. Note that is is
 /// only a view. It holds mut references to this element family, fields and connectivity (local
-/// data). This view still has read access to the whole coordinates array and the whole groups
-/// hashmap (but not publicly).
+/// data). This view still has read access to the whole coordinates array and the groups map
+/// (but not publicly).
 /// This iterator is thread safe and does not allow to change an element nature or the number of
 /// nodes in this element.
 pub struct ElementMut<'a> {
@@ -366,11 +367,9 @@ pub struct ElementMut<'a> {
     coords: nd::ArrayView2<'a, f64>,
     pub fields: Option<BTreeMap<&'a str, nd::ArrayViewMutD<'a, f64>>>,
     pub family: &'a mut usize,
-    groups: &'a BTreeMap<String, BTreeSet<usize>>, // safely shared across threads
     pub connectivity: &'a mut [usize],
     pub element_type: ElementType,
-    // element_coords_cache: OnceCell<Array2<f64>>,
-    element_groups_cache: OnceCell<Vec<String>>,
+    groups: &'a ArcGroups,
 }
 
 impl<'a> ElementLike<'a> for ElementMut<'a> {
@@ -390,34 +389,32 @@ impl<'a> ElementLike<'a> for ElementMut<'a> {
         self.coords.row(co[i]).to_slice().unwrap()
     }
 
-    #[cfg(feature = "rayon")]
-    fn groups(&self) -> &Vec<String> {
-        self.element_groups_cache.get_or_init(|| {
-            self.groups
-                .par_iter()
-                .filter(|(_, v)| v.contains(self.family))
-                .map(|(k, _)| k)
-                .cloned()
-                .collect()
-        })
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    fn groups(&self) -> &Vec<String> {
-        self.element_groups_cache.get_or_init(|| {
-            self.groups
-                .iter()
-                .filter(|(_, v)| v.contains(self.family))
-                .map(|(k, _)| k)
-                .cloned()
-                .collect()
-        })
-    }
-    fn in_group(&self, group: &str) -> bool {
-        self.groups.contains_key(group) && self.groups[group].contains(self.family)
-    }
     fn space_dimension(&self) -> usize {
         self.coords.shape()[1]
+    }
+}
+
+impl<'a> ElementGroups<'a> for ElementMut<'a> {
+    #[inline]
+    fn family_id(&self) -> usize {
+        *self.family
+    }
+
+    #[inline]
+    fn in_group(&self, group: &str) -> bool {
+        self.groups
+            .0
+            .get(group)
+            .map(|fids| fids.contains(&self.family_id()))
+            .unwrap_or(false)
+    }
+
+    fn groups(&self) -> impl Iterator<Item = &'a str> {
+        let fid = self.family_id();
+        self.groups
+            .iter()
+            .filter(move |(_, fids)| fids.contains(&fid))
+            .map(|(name, _)| name.as_str())
     }
 }
 
@@ -427,20 +424,18 @@ impl<'a> ElementMut<'a> {
         coords: nd::ArrayView2<'a, f64>,
         fields: Option<BTreeMap<&'a str, nd::ArrayViewMutD<'a, f64>>>,
         family: &'a mut usize,
-        groups: &'a BTreeMap<String, BTreeSet<usize>>,
         connectivity: &'a mut [usize],
         element_type: ElementType,
+        groups: &'a ArcGroups,
     ) -> ElementMut<'a> {
         ElementMut {
             index,
             coords,
             fields,
             family,
-            groups,
             connectivity,
             element_type,
-            // element_coords_cache: OnceCell::new(),
-            element_groups_cache: OnceCell::new(),
+            groups,
         }
     }
 }
@@ -454,17 +449,17 @@ mod tests {
     fn test_element_tri3_2d_basics() {
         let coords = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let conn = array![0, 1, 2];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = ArcGroups::new();
 
         let element = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn.as_slice().unwrap(),
             ElementType::TRI3,
+            &groups,
         );
 
         assert_eq!(element.connectivity.len(), 3);
@@ -475,8 +470,6 @@ mod tests {
         assert_eq!(element.regularity(), Regularity::Regular);
         assert_eq!(element.id(), ElementId::new(ElementType::TRI3, 0));
         // assert_abs_diff_eq!(element.measure2(), 0.5);
-        assert!(element.groups().is_empty());
-        assert!(!element.in_group("nonexistent_group"));
     }
 
     #[test]
@@ -488,17 +481,17 @@ mod tests {
             [1.0, 1.0, 0.0]
         ];
         let conn = array![0, 1, 2];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = ArcGroups::new();
 
         let element = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn.as_slice().unwrap(),
             ElementType::TRI3,
+            &groups,
         );
 
         assert_eq!(element.connectivity.len(), 3);
@@ -509,25 +502,23 @@ mod tests {
         assert_eq!(element.regularity(), Regularity::Regular);
         assert_eq!(element.id(), ElementId::new(ElementType::TRI3, 0));
         // assert_abs_diff_eq!(element.measure3(), 0.5);
-        assert!(element.groups().is_empty());
-        assert!(!element.in_group("nonexistent_group"));
     }
 
     #[test]
     fn test_element_quad4_2d_basics() {
         let coords = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let conn = array![0, 1, 3, 2];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = ArcGroups::new();
 
         let element = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn.as_slice().unwrap(),
             ElementType::QUAD4,
+            &groups,
         );
 
         assert_eq!(element.connectivity.len(), 4);
@@ -538,7 +529,5 @@ mod tests {
         assert_eq!(element.regularity(), Regularity::Regular);
         assert_eq!(element.id(), ElementId::new(ElementType::QUAD4, 0));
         // assert_abs_diff_eq!(element.measure2(), 1.0);
-        assert!(element.groups().is_empty());
-        assert!(!element.in_group("nonexistent_group"));
     }
 }

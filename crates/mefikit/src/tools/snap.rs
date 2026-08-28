@@ -1,15 +1,53 @@
 use crate::mesh::{ElementLike, IndirectIndexOwned, UMesh, UMeshView};
 
 use itertools::Itertools;
-use nalgebra as na;
-use rstar::{RTree, primitives::GeomWithData};
 use rustc_hash::FxHashMap;
+
+fn sorted_indices_for<const T: usize>(points: &[[f64; T]]) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..points.len()).collect();
+    indices.sort_by(|&a, &b| {
+        for (pa, pb) in points[a].iter().zip(points[b].iter()) {
+            match pa.partial_cmp(pb) {
+                Some(std::cmp::Ordering::Equal) => continue,
+                other => return other.unwrap_or(std::cmp::Ordering::Equal),
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+    indices
+}
+
+fn closest_within<const T: usize>(
+    target: &[f64; T],
+    sorted_indices: &[usize],
+    points: &[[f64; T]],
+    eps: f64,
+) -> Option<usize> {
+    let eps_sq = eps * eps;
+    let left = sorted_indices.partition_point(|&i| points[i][0] < target[0] - eps);
+    let right = sorted_indices.partition_point(|&i| points[i][0] <= target[0] + eps);
+
+    let mut best_dist_sq = eps_sq;
+    let mut best_idx = None;
+    for &i in &sorted_indices[left..right] {
+        let dist_sq: f64 = target
+            .iter()
+            .zip(points[i].iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        if dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best_idx = Some(i);
+        }
+    }
+    best_idx
+}
 
 fn snap_dim_n<const T: usize>(subject: &mut UMesh, reference: &UMeshView, eps: f64) {
     let ref_points: Vec<[f64; T]> = reference
         .used_nodes()
-        .into_iter()
-        .map(|i| {
+        .iter()
+        .map(|&i| {
             reference
                 .coords()
                 .row(i)
@@ -19,7 +57,8 @@ fn snap_dim_n<const T: usize>(subject: &mut UMesh, reference: &UMeshView, eps: f
                 .unwrap()
         })
         .collect();
-    let rtree = RTree::bulk_load(ref_points);
+    let sorted_ref = sorted_indices_for(&ref_points);
+
     for node in subject.used_nodes() {
         let coord: &mut [f64; T] = subject
             .coords
@@ -28,22 +67,8 @@ fn snap_dim_n<const T: usize>(subject: &mut UMesh, reference: &UMeshView, eps: f
             .unwrap()
             .try_into()
             .unwrap();
-        let closest_points = rtree.locate_within_distance(*coord, f64::powi(eps, 2));
-        let (_, closest) = closest_points
-            .into_iter()
-            .fold((f64::INFINITY, None), |acc, &p| {
-                let (min_d2, closest_p) = acc;
-                let na_p = p.into();
-                let na_coord = (*coord).into();
-                let d2 = na::distance_squared(&na_p, &na_coord);
-                if d2 < min_d2 {
-                    (d2, Some(p))
-                } else {
-                    (min_d2, closest_p)
-                }
-            });
-        if let Some(c) = closest {
-            coord.copy_from_slice(&c)
+        if let Some(idx) = closest_within(coord, &sorted_ref, &ref_points, eps) {
+            coord.copy_from_slice(&ref_points[idx]);
         }
     }
 }
@@ -54,23 +79,21 @@ fn duplicates_from_dim_n<const T: usize>(
     eps: f64,
 ) -> FxHashMap<usize, Vec<usize>> {
     let mut res: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
-    let ref_points: Vec<GeomWithData<[f64; T], usize>> = reference
-        .used_nodes()
+    let ref_used_nodes = reference.used_nodes();
+    let ref_points: Vec<[f64; T]> = ref_used_nodes
         .iter()
         .map(|&i| {
-            GeomWithData::new(
-                reference
-                    .coords()
-                    .row(i)
-                    .to_slice()
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-                i,
-            )
+            reference
+                .coords()
+                .row(i)
+                .to_slice()
+                .unwrap()
+                .try_into()
+                .unwrap()
         })
         .collect();
-    let rtree = RTree::bulk_load(ref_points);
+    let sorted_ref = sorted_indices_for(&ref_points);
+
     for node in subject.used_nodes() {
         let coord: &[f64; T] = subject
             .coords
@@ -79,22 +102,8 @@ fn duplicates_from_dim_n<const T: usize>(
             .unwrap()
             .try_into()
             .unwrap();
-        let closest_points = rtree.locate_within_distance(*coord, f64::powi(eps, 2));
-        let (_, closest) = closest_points
-            .into_iter()
-            .fold((f64::INFINITY, None), |acc, &p| {
-                let (min_d2, closest_p) = acc;
-                let na_p = (*p.geom()).into();
-                let na_coord = (*coord).into();
-                let d2 = na::distance_squared(&na_p, &na_coord);
-                if d2 < min_d2 {
-                    (d2, Some(p))
-                } else {
-                    (min_d2, closest_p)
-                }
-            });
-        if let Some(c) = closest {
-            let close_nodes = res.entry(c.data).or_default();
+        if let Some(idx) = closest_within(coord, &sorted_ref, &ref_points, eps) {
+            let close_nodes = res.entry(ref_used_nodes[idx]).or_default();
             close_nodes.push(node);
         }
     }
@@ -130,30 +139,54 @@ pub fn snap(subject: &mut UMesh, reference: &UMeshView, eps: f64) {
 
 fn duplicates_dim_n<const T: usize>(mesh: &UMeshView, eps: f64) -> IndirectIndexOwned<usize> {
     let used_nodes = mesh.used_nodes();
-    let points: Vec<GeomWithData<[f64; T], usize>> = used_nodes
+    let points: Vec<[f64; T]> = used_nodes
         .iter()
-        .map(|&i| {
-            GeomWithData::new(
-                mesh.coords().row(i).to_slice().unwrap().try_into().unwrap(),
-                i,
-            )
-        })
+        .map(|&i| mesh.coords().row(i).to_slice().unwrap().try_into().unwrap())
         .collect();
-    let mut rtree = RTree::bulk_load(points);
+
+    let mut sorted_indices: Vec<usize> = (0..points.len()).collect();
+    sorted_indices.sort_by(|&a, &b| {
+        for (pa, pb) in points[a].iter().zip(points[b].iter()) {
+            match pa.partial_cmp(pb) {
+                Some(std::cmp::Ordering::Equal) => continue,
+                other => return other.unwrap_or(std::cmp::Ordering::Equal),
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+
+    let eps_sq = eps * eps;
+    let mut processed = vec![false; points.len()];
     let mut res = IndirectIndexOwned::new();
-    for &node in &used_nodes {
-        let coord: [f64; T] = mesh
-            .coords()
-            .row(node)
-            .as_slice()
-            .unwrap()
-            .try_into()
-            .unwrap();
-        // Points are drained so they are not counted twice
-        let closest_points = rtree.drain_within_distance(coord, f64::powi(eps, 2));
-        let node_group: Vec<usize> = closest_points.map(|p| p.data).sorted_unstable().collect();
-        if node_group.len() > 1 {
-            res.push(&node_group);
+
+    for (pos, &idx) in sorted_indices.iter().enumerate() {
+        if processed[idx] {
+            continue;
+        }
+        let mut group = vec![used_nodes[idx]];
+        processed[idx] = true;
+
+        for &other_idx in sorted_indices.iter().skip(pos + 1) {
+            if processed[other_idx] {
+                continue;
+            }
+            if points[other_idx][0] - points[idx][0] > eps {
+                break;
+            }
+            let dist_sq: f64 = points[idx]
+                .iter()
+                .zip(points[other_idx].iter())
+                .map(|(a, b)| (a - b).powi(2))
+                .sum();
+            if dist_sq <= eps_sq {
+                group.push(used_nodes[other_idx]);
+                processed[other_idx] = true;
+            }
+        }
+
+        if group.len() > 1 {
+            group.sort_unstable();
+            res.push(&group);
         }
     }
     res

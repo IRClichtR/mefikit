@@ -10,7 +10,7 @@ pv.set_plot_theme("dark")
 pv.set_jupyter_backend("static")
 ```
 
-### Building mesh with custom connectivity
+## Building mesh with custom connectivity
 
 First let's build a 2D mesh wich will by used to demonstrate extrusions.
 
@@ -99,15 +99,13 @@ extruded_par.to_pyvista(dim="all").plot(show_edges=True)
 
 
 
-### Build curviliear extrusion mesh
+### Build curvilinear extrusion mesh
 
 
 ```python
 mesh = mf.build_cmesh(range(2), range(2))
 n = 20
-# x = np.linspace(0, 4, n)
 x = np.zeros((n,))
-# x = np.sin(np.linspace(0.0, np.pi, n))
 y = np.cos(np.linspace(0.0, np.pi, n))
 z = np.sin(np.linspace(0.0, np.pi, n))
 line = np.c_[x, y, z]

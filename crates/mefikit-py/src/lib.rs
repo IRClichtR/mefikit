@@ -3,13 +3,28 @@ use pyo3::prelude::*;
 mod element;
 mod element_ids;
 mod pyfield;
+mod pyfields;
+mod pygroups;
+mod pytransfer;
 mod pyumesh;
 mod select;
 
 #[pymodule]
 mod sel {
     #[pymodule_export]
-    use super::select::{bbox, circle, ids, nbbox, ncircle, nids, nrect, nsphere, rect, sphere};
+    use super::select::{
+        all, bbox, circle, exclude_group, group, ids, nbbox, ncircle, nids, nrect, nsphere, rect,
+        sphere, types,
+    };
+}
+
+#[pymodule]
+mod transfer {
+    #[pymodule_export]
+    use super::pytransfer::{
+        PyConservativeP0, PyConstantPiecewise, PyDistanceWeighting, PyInverseDistance,
+        PyMovingLeastSquares,
+    };
 }
 
 /// A Python module implemented in Rust. The name of this function must match
@@ -25,10 +40,22 @@ mod mefipy {
     use super::sel;
 
     #[pymodule_export]
+    use super::transfer;
+
+    #[pymodule_export]
     use super::pyumesh::{PyOverlayOperation, PyUMesh};
 
     #[pymodule_export]
     use super::pyfield::PyField;
+
+    #[pymodule_export]
+    use super::pyfields::{PyFieldRef, PyFieldsMapping};
+
+    #[pymodule_export]
+    use super::pygroups::{PyGroupRef, PyGroupsMapping};
+
+    #[pymodule_export]
+    use super::select::PySelectionResult;
 
     #[pyfunction]
     #[pyo3(signature = (*args))]

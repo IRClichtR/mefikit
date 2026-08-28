@@ -188,6 +188,22 @@ impl Selection {
             right: Arc::new(right),
         })
     }
+    pub fn group(self, name: &str) -> Self {
+        let right = Self::GroupSelection(GroupSelection::IncludeGroup(name.to_string()));
+        Self::BinarayExpr(BinarayExpr {
+            operator: BooleanOp::And,
+            left: Arc::new(self),
+            right: Arc::new(right),
+        })
+    }
+    pub fn exclude_group(self, name: &str) -> Self {
+        let right = Self::GroupSelection(GroupSelection::ExcludeGroup(name.to_string()));
+        Self::BinarayExpr(BinarayExpr {
+            operator: BooleanOp::And,
+            left: Arc::new(self),
+            right: Arc::new(right),
+        })
+    }
 }
 
 /// Creates a selection for nodes inside an axis-aligned 3D bounding box.
@@ -235,6 +251,11 @@ pub fn circle(center: [f64; 2], r2: f64) -> Selection {
     Selection::CentroidSelection(CentroidSelection::Circle { center, r2 })
 }
 
+/// Creates a selection matching every element of the mesh.
+pub fn all() -> Selection {
+    Selection::ElementSelection(ElementSelection::All)
+}
+
 /// Creates a selection for elements of specific types.
 pub fn types(elems: Vec<ElementType>) -> Selection {
     Selection::ElementSelection(ElementSelection::Types(elems))
@@ -248,6 +269,16 @@ pub fn dimensions(dims: Vec<Dimension>) -> Selection {
 /// Creates a selection for elements by their IDs.
 pub fn ids(eids: ElementIds) -> Selection {
     Selection::ElementSelection(ElementSelection::InIds(eids))
+}
+
+/// Creates a selection for elements belonging to a named group.
+pub fn group(name: &str) -> Selection {
+    Selection::GroupSelection(GroupSelection::IncludeGroup(name.to_string()))
+}
+
+/// Creates a selection for elements NOT belonging to a named group.
+pub fn exclude_group(name: &str) -> Selection {
+    Selection::GroupSelection(GroupSelection::ExcludeGroup(name.to_string()))
 }
 
 impl Select for Selection {
@@ -325,6 +356,7 @@ impl Not for Selection {
 impl Select for ElementSelection {
     fn select<'a>(&'a self, _view: &'a UMeshView<'a>, eids_in: ElementIdsSet) -> ElementIdsSet {
         match self {
+            Self::All => eids_in,
             Self::Types(types) => Self::select_types(types.as_slice(), eids_in),
             Self::Dimensions(dims) => Self::select_dimensions(dims.as_slice(), eids_in),
             Self::InIds(ids) => Self::select_ids(ids.clone(), eids_in),
@@ -349,8 +381,6 @@ impl Select for GroupSelection {
         match self {
             Self::IncludeGroup(name) => Self::include_group(name, view, eids_in),
             Self::ExcludeGroup(name) => Self::exclude_group(name, view, eids_in),
-            Self::IncludeFamily(fid) => Self::include_family(*fid, view, eids_in),
-            Self::ExcludeFamily(fid) => Self::exclude_family(*fid, view, eids_in),
         }
     }
 }

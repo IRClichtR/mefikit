@@ -5,9 +5,10 @@ use std::{
 };
 
 use mefikit::{
+    mesh::{ElementType, FieldArcD},
     prelude as mf,
     tools::{
-        Descendable, Measurable, MeshSelect, NodeDuplicates, Overlayable,
+        Descendable, Measurable, NodeDuplicates, Overlayable,
         fieldexpr::{MeshEvalUpdatable, MeshEvaluable},
     },
 };
@@ -18,13 +19,16 @@ use numpy::ndarray as nd;
 use numpy::{self as np, PyReadonlyArray2};
 
 use super::element::{etype_to_str, str_to_etype};
-use crate::{pyfield::PyField, select::PySelection};
+use crate::pyfield::PyField;
+use crate::pyfields::PyFieldsMapping;
+use crate::pygroups::PyGroupsMapping;
+use crate::select::{PySelection, PySelectionResult};
 
 #[pyclass(str)]
 #[pyo3(name = "UMesh")]
 #[derive(PartialEq)]
 pub struct PyUMesh {
-    inner: mf::UMesh,
+    pub(crate) inner: mf::UMesh,
 }
 
 #[derive(IntoPyObject)]
@@ -74,27 +78,18 @@ impl PyUMesh {
             .collect()
     }
 
-    fn fields<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> BTreeMap<String, BTreeMap<String, Bound<'py, np::PyArray<f64, nd::IxDyn>>>> {
-        self.inner
-            .fields()
-            .map(|(field_name, field)| {
-                (
-                    field_name,
-                    field
-                        .0
-                        .iter()
-                        .map(|(&et, block)| {
-                            let et = etype_to_str(et);
-                            let arr = np::PyArray::from_array(py, block);
-                            (et, arr)
-                        })
-                        .collect(),
-                )
-            })
-            .collect()
+    #[getter]
+    fn fields(slf: &Bound<'_, Self>) -> PyFieldsMapping {
+        PyFieldsMapping {
+            mesh: slf.clone().unbind(),
+        }
+    }
+
+    #[getter]
+    fn groups(slf: &Bound<'_, Self>) -> PyGroupsMapping {
+        PyGroupsMapping {
+            mesh: slf.clone().unbind(),
+        }
     }
 
     fn to_json(&self) -> String {
@@ -120,6 +115,19 @@ impl PyUMesh {
         });
         self.inner
             .add_regular_block(str_to_etype(et), block.as_array().to_shared(), fields);
+    }
+
+    /// Add a field to the mesh.
+    fn set_field(
+        &mut self,
+        name: &str,
+        field: BTreeMap<String, np::PyReadonlyArray<'_, f64, nd::IxDyn>>,
+    ) {
+        let field: BTreeMap<ElementType, _> = field
+            .iter()
+            .map(|(et, f)| (str_to_etype(et), f.as_array().to_shared()))
+            .collect();
+        self.inner.update_field(name, FieldArcD::new(field));
     }
 
     #[staticmethod]
@@ -245,10 +253,12 @@ impl PyUMesh {
         new_mesh.into()
     }
 
-    #[pyo3(signature = (expr, with_fields=true))]
-    fn select(&self, expr: PySelection, with_fields: bool) -> Self {
-        let (_, submesh) = self.inner.select(expr.into(), with_fields);
-        submesh.into()
+    #[pyo3(signature = (expr))]
+    fn select(slf: &Bound<'_, Self>, expr: PySelection) -> PySelectionResult {
+        PySelectionResult {
+            mesh: slf.clone().unbind(),
+            expr: expr.into(),
+        }
     }
 
     fn eval<'py>(
@@ -272,9 +282,22 @@ impl PyUMesh {
         new_mesh.into()
     }
 
+    fn polyze(&self) -> Self {
+        let new_mesh = mf::polyze(&self.inner.view());
+        new_mesh.into()
+    }
+
+    fn unpolyze(&self) -> PyResult<Self> {
+        let new_mesh =
+            mf::unpolyze(&self.inner.view()).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(new_mesh.into())
+    }
+
     fn num_elements(&self) -> usize {
         self.inner.num_elements()
     }
+
+    // ==================== Group Operations ====================
 
     /// Computes the boolean overlay of this mesh (as mesh1) with `mesh2`.
     ///
@@ -286,6 +309,14 @@ impl PyUMesh {
         let result = self.inner.overlay(mesh2.inner.clone(), operation);
         Ok(result.into())
     }
+}
+
+pub fn into_view(mesh: &PyUMesh) -> mf::UMeshView<'_> {
+    mesh.inner.view()
+}
+
+pub fn into_mut(mesh: &mut PyUMesh) -> &mut mf::UMesh {
+    &mut mesh.inner
 }
 
 impl Display for PyUMesh {
@@ -303,6 +334,12 @@ impl From<mf::UMesh> for PyUMesh {
 impl From<PyUMesh> for mf::UMesh {
     fn from(pyumesh: PyUMesh) -> Self {
         pyumesh.inner
+    }
+}
+
+impl<'a> From<&'a PyUMesh> for &'a mf::UMesh {
+    fn from(pyumesh: &'a PyUMesh) -> Self {
+        &pyumesh.inner
     }
 }
 

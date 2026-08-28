@@ -45,6 +45,73 @@ mesh2 = mf.build_cmesh(x, x)
 mesh2.measure_update()
 ```
 
+## The fields mapping
+
+Fields live in a dict-like mapping on the mesh, keyed by name. Each entry is a handle (`FieldRef`) to read values, reduce them, or write through selectors.
+
+
+```python
+# List and look up fields by name.
+print(mesh2.fields.keys())
+ref = mesh2.fields["Measure"]
+print("shape:", ref.shape, "| elements:", len(ref))
+```
+
+    ['Measure']
+    shape: (1,) | elements: 998001
+
+
+
+```python
+# Bulk export as {etype: array} (or a single array via `.numpy()` when the
+# mesh has one element type).
+vals = ref.values()["QUAD4"]
+assert np.allclose(vals.ravel(), np.asarray(ref.numpy()).ravel())
+```
+
+
+```python
+# Whole-domain reductions over every element carrying the field.
+print(ref.min(), ref.max(), ref.mean())
+```
+
+    1.3435388258527605e-14 0.00013129258865784976 1.0019829640451095e-06
+
+
+
+```python
+# Regional reductions: combine a lazy selection with any field expression,
+# including plain existing field names as strings.
+zone = mesh2.select(mf.sel.rect([0.25, 0.25], [0.7, 0.7]))
+print(zone.mean("Measure"), zone.max(mf.Field("Measure") * 4))
+```
+
+    2.542318151469843e-05 0.00025703359604145604
+
+
+
+```python
+# Writes accept scalars, arrays, field expressions or existing field names,
+# targeted by wildcards (`...`) or selectors.
+mesh2.fields["Scratch"] = 0.0  # create by broadcast
+mesh2.fields["Scratch"][...] = "Measure"  # copy an existing field
+
+sel = mf.sel.rect([0.0, 0.0], [0.3, 1.0])
+mesh2.fields["Scratch"][sel] = mf.Field("Measure") * 2  # scaled sub-region
+
+sample = mesh2.fields["Scratch"].values()["QUAD4"].ravel()
+measure = mesh2.fields["Measure"].values()["QUAD4"].ravel()
+scaled = np.isclose(sample, measure * 2) & ~np.isclose(sample, measure)
+print("scaled inside:", int(scaled.sum()))
+print("untouched outside:", int(np.isclose(sample, measure).sum()))
+
+del mesh2.fields["Scratch"]  # remove it again
+```
+
+    scaled inside: 258840
+    untouched outside: 739161
+
+
 
 ```python
 mesh2.to_pyvista().plot()
@@ -52,7 +119,7 @@ mesh2.to_pyvista().plot()
 
 
 
-![png](fields_files/fields_5_0.png)
+![png](fields_files/fields_11_0.png)
 
 
 
@@ -65,7 +132,7 @@ m = mf.Field("Measure")
 
 
 ```python
-mesh2.eval_update("4 * M2", m * m * 4.0)
+mesh2.fields["4 * M2"] = m * m * 4.0
 ```
 
 
@@ -75,22 +142,19 @@ mesh2.to_pyvista().plot()
 
 
 
-![png](fields_files/fields_9_0.png)
+![png](fields_files/fields_15_0.png)
 
 
 
 
 ```python
-mesh2.fields()
+mesh2.fields
 ```
 
 
 
 
-    {'4 * M2': {'QUAD4': array([7.22038631e-28, 7.38874101e-28, 7.56102117e-28, ...,
-             6.58446349e-08, 6.73799065e-08, 6.89509753e-08], shape=(998001,))},
-     'Measure': {'QUAD4': array([1.34353883e-14, 1.35911194e-14, 1.37486555e-14, ...,
-             1.28301047e-04, 1.29788199e-04, 1.31292589e-04], shape=(998001,))}}
+    FieldsMapping(["4 * M2", "Measure"])
 
 
 
@@ -148,7 +212,7 @@ th = (m > 3.25e-5) & (m < 1e-4)
 
 
 ```python
-m2sel = mesh2.select(th)
+m2sel = mesh2.select(th).to_mesh()
 pvm2: pv.UnstructuredGrid = m2sel.to_pyvista()
 pvm2.active_scalars_name = "Measure"
 pvm2.plot()
@@ -156,11 +220,11 @@ pvm2.plot()
 
 
 
-![png](fields_files/fields_17_0.png)
+![png](fields_files/fields_23_0.png)
 
 
 
-Thoses threasholds selections can be combined with other selections.
+Those threshold selections can be combined with other selections.
 
 
 ```python
@@ -170,9 +234,9 @@ c = mf.sel.circle([0.875, 0.875], 0.05)
 
 
 ```python
-mesh2.select((m2 > 4e-9) - r - c).to_pyvista().plot()
+mesh2.select((m2 > 4e-9) - r - c).to_mesh().to_pyvista().plot()
 ```
 
 
 
-![png](fields_files/fields_20_0.png)
+![png](fields_files/fields_26_0.png)

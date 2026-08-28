@@ -25,8 +25,15 @@ pub fn etype_to_str(et: mf::ElementType) -> String {
 }
 
 pub fn str_to_etype(et: &str) -> mf::ElementType {
+    match try_str_to_etype(et) {
+        Ok(etype) => etype,
+        Err(msg) => panic!("{}", msg),
+    }
+}
+
+pub fn try_str_to_etype(et: &str) -> Result<mf::ElementType, String> {
     use mf::ElementType::*;
-    match et {
+    Ok(match et {
         "VERTEX" => VERTEX,
         "SEG2" => SEG2,
         "SEG3" => SEG3,
@@ -41,6 +48,6 @@ pub fn str_to_etype(et: &str) -> mf::ElementType {
         "TET10" => TET10,
         "HEX8" => HEX8,
         "HEX21" => HEX21,
-        _ => panic!("Unsupported element type: {}", et),
-    }
+        _ => return Err(format!("Unsupported element type: {}", et)),
+    })
 }

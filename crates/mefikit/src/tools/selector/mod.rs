@@ -10,5 +10,6 @@ mod group;
 mod node;
 pub mod selection;
 
+pub use field::{Comparable, FieldSelection};
 pub use selection as sel;
 pub use selection::{MeshSelect, Selection};

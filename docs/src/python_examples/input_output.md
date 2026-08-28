@@ -1,9 +1,13 @@
-# Intput / Output
+# Input / Output
 
 
 ```python
 import mefikit as mf
 import numpy as np
+import pyvista as pv
+
+pv.set_plot_theme("dark")
+pv.set_jupyter_backend("static")
 ```
 
 
@@ -30,30 +34,18 @@ volumes.to_mc()
 
 
 
-    MEDCouplingUMesh C++ instance at 0x2e9f50f0. Name : "mf_UMesh". Not set !
+    MEDCouplingUMesh C++ instance at 0x16bbb020. Name : "mf_UMesh". Not set !
 
 
 
 
 ```python
-volumes.to_pyvista()
+volumes.to_pyvista().plot()
 ```
 
 
 
-
-
-<table style='width: 100%;'>
-<tr><th>UnstructuredGrid</th><th>Information</th></tr>
-<tr><td>N Cells</td><td>16</td></tr>
-<tr><td>N Points</td><td>50</td></tr>
-<tr><td>X Bounds</td><td>0.000e+00, 1.000e+00</td></tr>
-<tr><td>Y Bounds</td><td>0.000e+00, 1.000e+00</td></tr>
-<tr><td>Z Bounds</td><td>1.000e-01, 1.000e+00</td></tr>
-<tr><td>N Arrays</td><td>0</td></tr>
-</table>
-
-
+![png](input_output_files/input_output_5_0.png)
 
 
 
@@ -86,18 +78,22 @@ volumes.to_json()
 
 ## File read/write
 
-- On rust side, file I/O with the `read`/`write` methods:
-    - vtk
+- On rust side, file I/O with the `read`/`write` methods, driven by the file extension:
+    - vtk (legacy binary vtk 2.0)
     - yaml
     - json
+    - vtkhdf / h5 / hdf5 (HDF5-based VTK)
 
-Note that for now the vtk reader/writer is only based on the binary vtk 2.0 file format (which is quite old). No rust crate is doing better. I am planning on implementing a HDF5/CGNS compliant rust reader/writer (based on the hdf5 lib) in order to support a more HPC file format.
+The legacy vtk reader/writer only supports the old binary vtk 2.0 file format (no rust crate is doing better so far). The HDF5-based `.vtkhdf` reader/writer is the recommended option for a more modern and HPC friendly format. CGNS support is planned.
 
 
 ```python
-for ext in ("vtk", "yaml", "json"):
+import pathlib
+
+pathlib.Path("data").mkdir(exist_ok=True)
+for ext in ("vtk", "yaml", "json", "vtkhdf"):
     volumes.write(f"data/volumes.{ext}")
-    volumes_from_disk = mf.UMesh.read("data/volumes.vtk")
+    volumes_from_disk = mf.UMesh.read(f"data/volumes.{ext}")
     assert volumes_from_disk
     assert (
         volumes != volumes_from_disk

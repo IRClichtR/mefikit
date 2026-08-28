@@ -131,7 +131,7 @@ plotter.show()
 
 ## Overlay
 
-The intersection is valid in the following counditions :
+The intersection is valid in the following conditions :
 - mesh1 and mesh2 are valid (no self recovering),
 - mesh1 and mesh2 are 2d (xy),
 - correctly oriented (CCW element connectivity),

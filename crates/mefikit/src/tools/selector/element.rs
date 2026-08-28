@@ -4,6 +4,7 @@ use crate::mesh::{Dimension, ElementIds, ElementIdsSet, ElementType};
 
 #[derive(Clone, Debug)]
 pub enum ElementSelection {
+    All,
     Types(Vec<ElementType>),
     InIds(ElementIds),
     Dimensions(Vec<Dimension>),

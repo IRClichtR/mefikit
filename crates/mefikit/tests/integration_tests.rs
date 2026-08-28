@@ -3,6 +3,7 @@
 //! These tests focus on end-to-end functionality and interactions between modules.
 
 use approx::assert_abs_diff_eq;
+use mefikit::element_traits::ElementGroups;
 use mefikit::mesh::{ElementId, ElementIds, FieldBase};
 use mefikit::prelude::*;
 use ndarray as nd;
@@ -328,7 +329,7 @@ mod fields {
         let mut field_map = BTreeMap::new();
         field_map.insert(ElementType::QUAD4, field_data);
         let field_base = FieldBase::new(field_map);
-        mesh.update_field("temperature", field_base, Some(Dimension::D2));
+        mesh.update_field("temperature", field_base);
         let field = mesh.field("temperature", Some(Dimension::D2));
         assert!(field.is_some());
     }
@@ -340,7 +341,7 @@ mod fields {
         let mut field_map = BTreeMap::new();
         field_map.insert(ElementType::QUAD4, field_data);
         let field_base = FieldBase::new(field_map);
-        mesh.update_field("temperature", field_base, Some(Dimension::D2));
+        mesh.update_field("temperature", field_base);
         let field_names: Vec<_> = mesh.fields().map(|(name, _)| name).collect();
         assert_eq!(field_names.len(), 1);
         assert_eq!(field_names[0], "temperature");
@@ -353,7 +354,7 @@ mod fields {
         let mut field_map = BTreeMap::new();
         field_map.insert(ElementType::QUAD4, field_data);
         let field_base = FieldBase::new(field_map);
-        mesh.update_field("temperature", field_base, Some(Dimension::D2));
+        mesh.update_field("temperature", field_base);
         let removed = mesh.remove_field("temperature", Some(Dimension::D2));
         assert!(removed.is_some());
         let field = mesh.field("temperature", Some(Dimension::D2));
@@ -368,25 +369,25 @@ mod element_operations {
     fn element_connectivity_equals() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = mefikit::mesh::ArcGroups::new();
         let elem1 = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         let elem2 = Element::new(
             1,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
         assert!(elem1.connectivity_equals(&elem2));
     }
@@ -396,25 +397,25 @@ mod element_operations {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn1 = &[0, 1, 2];
         let conn2 = &[2, 1, 0];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = mefikit::mesh::ArcGroups::new();
         let elem1 = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn1,
             ElementType::TRI3,
+            &groups,
         );
         let elem2 = Element::new(
             1,
             coords.view(),
             None,
             &family,
-            &groups,
             conn2,
             ElementType::TRI3,
+            &groups,
         );
         assert!(!elem1.connectivity_equals(&elem2));
     }
@@ -423,18 +424,18 @@ mod element_operations {
     fn element_groups_empty_by_default() {
         let coords = nd::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let conn = &[0, 1, 2];
-        let groups = BTreeMap::new();
         let family = 0;
+        let groups = mefikit::mesh::ArcGroups::new();
         let elem = Element::new(
             0,
             coords.view(),
             None,
             &family,
-            &groups,
             conn,
             ElementType::TRI3,
+            &groups,
         );
-        assert!(elem.groups().is_empty());
+        assert!(elem.groups().next().is_none());
         assert!(!elem.in_group("test"));
     }
 }
@@ -694,7 +695,7 @@ mod element_block_operations {
     fn block_has_family() {
         let mesh = make_mesh_2d_quad();
         let block = mesh.block(ElementType::QUAD4).unwrap();
-        assert_eq!(block.families.len(), 1);
+        assert_eq!(block.families().len(), 1);
     }
 }
 

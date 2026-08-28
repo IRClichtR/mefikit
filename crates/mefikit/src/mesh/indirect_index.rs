@@ -1,6 +1,6 @@
 //! An indirect indexing structure for variable-length arrays.
 //!
-//! [`IndirectIndex`] stores data in a flat array with an offsets array to
+//! `IndirectIndex` stores data in a flat array with an offsets array to
 //! delineate sub-slices, enabling efficient storage of variable-length
 //! sequences (e.g., polygonal element connectivity).
 
@@ -111,7 +111,7 @@ where
     }
 }
 
-/// Immutable iterator over sub-slices of an [`IndirectIndex`].
+/// Immutable iterator over sub-slices of an `IndirectIndex`.
 pub struct IndirectIndexIter<'a, T>
 where
     T: 'a,
@@ -154,7 +154,7 @@ where
     }
 }
 
-/// Mutable iterator over sub-slices of an [`IndirectIndex`].
+/// Mutable iterator over sub-slices of an `IndirectIndex`.
 pub struct IndirectIndexIterMut<'a, T>
 where
     T: 'a,
@@ -252,6 +252,18 @@ where
         let offsets = std::mem::replace(&mut self.offsets, nd::arr1(&[]));
         let (mut vec_offsets, _) = offsets.into_raw_vec_and_offset();
         vec_data.extend_from_slice(elem);
+        vec_offsets.push(vec_data.len());
+        self.data = vec_data.into();
+        self.offsets = vec_offsets.into();
+    }
+
+    /// Appends a new sub-slice to the index.
+    pub fn push_iter<I: IntoIterator<Item = T>>(&mut self, elem: I) {
+        let data = std::mem::replace(&mut self.data, nd::arr1(&[]));
+        let (mut vec_data, _) = data.into_raw_vec_and_offset();
+        let offsets = std::mem::replace(&mut self.offsets, nd::arr1(&[]));
+        let (mut vec_offsets, _) = offsets.into_raw_vec_and_offset();
+        vec_data.extend(elem);
         vec_offsets.push(vec_data.len());
         self.data = vec_data.into();
         self.offsets = vec_offsets.into();

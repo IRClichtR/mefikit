@@ -12,12 +12,12 @@ pv.set_jupyter_backend("static")
 
 ## Element selection
 
-Elements can be selected based on there:
+Elements can be selected based on their:
 - types
 - ids
 - dimensions
 
-Elements can be selected based on there centroid position. The selection methods using centroids are :
+Elements can be selected based on their centroid position. The selection methods using centroids are :
 - bbox
 - sphere
 - rectangle
@@ -25,16 +25,16 @@ Elements can be selected based on there centroid position. The selection methods
 
 As you can guess, bbox and sphere should be used for 3d meshes and rectangle and circle for 2d meshes.
 
-Elements can be selected based on the nodes position and a boolean : whether to select element with all nodes matching the coundition or any node matching the coundition.
+Elements can be selected based on the nodes position and a boolean : whether to select element with all nodes matching the condition or any node matching the condition.
 - nbbox
 - nsphere
 - nrect
 - ncircle
 - nids
 
-Elements can be selected based on their group appartenance :
-- inside
-- outside
+Elements can be selected based on their group membership :
+- group(name)
+- exclude_group(name)
 
 Elements can be selected based on their scalar fields values :
 - FieldExpr > FieldExpr
@@ -42,6 +42,8 @@ Elements can be selected based on their scalar fields values :
 - FieldExpr < FieldExpr
 - FieldExpr <= FieldExpr
 - FieldExpr == FieldExpr
+
+Wherever a selector is expected, the wildcards `None`, `...` and `[:]` select every element — the explicit form is `mf.sel.all()`.
 
 
 ### The Selection type
@@ -62,7 +64,7 @@ volumes = mf.build_cmesh(x, x, x)
 
 
 ```python
-volumes.select(clip).to_pyvista().plot()
+volumes.select(clip).to_mesh().to_pyvista().plot()
 ```
 
 
@@ -73,7 +75,7 @@ volumes.select(clip).to_pyvista().plot()
 
 
 ```python
-volumes.select(sphere).to_pyvista().plot()
+volumes.select(sphere).to_mesh().to_pyvista().plot()
 ```
 
 
@@ -85,7 +87,7 @@ volumes.select(sphere).to_pyvista().plot()
 ## Selection composition
 
 One of the great strength of the select method is its composability !
-Whatch by yourself.
+Watch by yourself.
 
 The operators `&`, `|`, `^`, `-` and `~` are available.
 
@@ -104,7 +106,7 @@ circle2 = mf.sel.circle([1.25, 0.5], 0.5)
 
 
 ```python
-union = faces.select(circle1 | circle2)
+union = faces.select(circle1 | circle2).to_mesh()
 ```
 
 
@@ -124,7 +126,7 @@ pt.show()
 
 
 ```python
-intersection = faces.select(circle1 & circle2)
+intersection = faces.select(circle1 & circle2).to_mesh()
 ```
 
 
@@ -144,7 +146,7 @@ pt.show()
 
 
 ```python
-sym_diff = faces.select(circle1 ^ circle2)
+sym_diff = faces.select(circle1 ^ circle2).to_mesh()
 ```
 
 
@@ -164,7 +166,7 @@ pt.show()
 
 
 ```python
-diff = faces.select(circle1 - circle2)
+diff = faces.select(circle1 - circle2).to_mesh()
 ```
 
 
@@ -184,7 +186,7 @@ pt.show()
 
 
 ```python
-notsel = faces.select(~circle1)
+notsel = faces.select(~circle1).to_mesh()
 ```
 
 
@@ -215,7 +217,7 @@ clip_z = mf.sel.bbox([-np.inf, -np.inf, -np.inf], [np.inf, np.inf, 0.5])  # z < 
 ```python
 volumes.select(
     (clip_x & sphere & clip_z) | (sphere & ~clip_x & ~clip_z)
-).to_pyvista().plot()
+).to_mesh().to_pyvista().plot()
 ```
 
 
@@ -286,3 +288,95 @@ print(~(sphere & clip_x))
 
 
 You can see two layers of NotExpr and BinaryExpr. That is perfectly normal, it does not mean that the operation is applied twice, both NotExpr operations and both BinaryExpr op actually comes from different namespaces and it is just a form of encapsulation (first is a variant, second is an enum).
+
+
+```python
+# select returns a lazy view; ids(), len() and reductions evaluate it on demand.
+volumes.select(sphere)
+```
+
+
+
+
+    SelectionResult(n_elements=3695)
+
+
+
+
+```python
+two_quarters_expr = (clip_x & sphere & clip_z) | (sphere & ~clip_x & ~clip_z)
+```
+
+
+```python
+volumes.select(two_quarters_expr).ids()
+```
+
+
+
+
+    {'HEX8': array([ 143,  144,  162, ..., 6715, 6716, 6735],
+           shape=(1838,), dtype=uint64)}
+
+
+
+## Named groups
+
+Selections can be stored on the mesh as named groups. The `mesh.groups` mapping behaves like a dict: assign a selection expression (or a `{etype: ids}` dict) to create or replace a group, then manage groups with the usual operations.
+
+
+```python
+volumes.groups["two_quarters"] = two_quarters_expr
+```
+
+
+```python
+volumes.groups["two_quarters"].ids()
+```
+
+
+
+
+    {'HEX8': array([ 143,  144,  162, ..., 6715, 6716, 6735],
+           shape=(1838,), dtype=uint64)}
+
+
+
+
+```python
+# Grow or shrink an existing group, either with a selection...
+n = len(volumes.groups["two_quarters"])
+volumes.groups["two_quarters"].add(
+    mf.sel.bbox([-np.inf, -np.inf, -np.inf], [np.inf, np.inf, 0.2])
+)
+print(len(volumes.groups["two_quarters"]), "after adding a slab (was", n, ")")
+```
+
+    3089 after adding a slab (was 1838 )
+
+
+
+```python
+# ...or directly with element ids per element type.
+volumes.groups["two_quarters"].add({"HEX8": [0, 1]})
+volumes.groups["two_quarters"].remove({"HEX8": [0, 1]})
+print(len(volumes.groups["two_quarters"]), "back to the original size")
+```
+
+    3087 back to the original size
+
+
+
+```python
+# Groups support the usual mapping operations.
+print(volumes.groups.keys())
+print("two_quarters" in volumes.groups, len(volumes.groups))
+
+volumes.groups.rename("two_quarters", "quarter_tag")
+del volumes.groups["quarter_tag"]
+print(volumes.groups.keys())
+```
+
+    ['two_quarters']
+    True 1
+    []

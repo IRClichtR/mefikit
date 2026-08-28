@@ -1,7 +1,7 @@
 //! Core mesh data structures for unstructured mesh manipulation.
 //!
 //! This module provides the fundamental types for representing unstructured meshes,
-//! including connectivity, element blocks, fields, and the main [`UMesh`] type.
+//! including connectivity, element blocks, fields, and the main `UMesh` type.
 
 mod connectivity;
 mod dimension;
@@ -16,7 +16,7 @@ mod umesh;
 pub use connectivity::{Connectivity, ConnectivityView};
 pub use dimension::Dimension;
 pub use element::{Element, ElementId, ElementLike, ElementMut, ElementType, Regularity};
-pub use element_block::ElementBlockView;
+pub use element_block::{ArcGroups, ElementBlock, ElementBlockView, IntoElementBlockEntry};
 pub use element_ids::ElementIds;
 pub use element_ids_set::ElementIdsSet;
 pub use fields::{
